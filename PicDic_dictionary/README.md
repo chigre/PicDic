@@ -2,18 +2,16 @@
 
 ## 一、StarDict 词典：picdic-single
 
+* 仅包含 `picdic` 一个入口词条。
 目录结构：
 
 ```text
-picdic-single/
-├── README.md
+GoldenDict/PicDic/
 ├── picdic-single.ifo
 ├── picdic-single.idx
 ├── picdic-single.dict
 └── picdic-single.bmp
 ```
-
-* 仅包含 `picdic` 一个入口词条。
 
 ## 二、手机 GoldenDict 资源
 
