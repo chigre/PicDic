@@ -1,4 +1,4 @@
-// PicDic_DictionaryController.js V8 Slim
+// PicDic_DictionaryController.js V8.1 Slim + Lazy UI Factory Loader
 // Shared runtime bridge for GoldenDict / MDict PicDic embedding.
 (function(global){
 "use strict";
@@ -330,6 +330,26 @@ Controller.prototype.loadScript=function(src){
         var s=document.createElement("script");
         s.src=src;s.onload=resolve;s.onerror=reject;document.head.appendChild(s);
     });
+};
+
+Controller.prototype.loadUiModule=function(){
+    var r=runtime(),self=this;
+    if(global._picdicCreateUI||global._picdicUI) return Promise.resolve(true);
+    if(r.uiLoadPromise) return r.uiLoadPromise;
+
+    var base=this.config.picDicBase||"file:///sdcard/GoldenDict/PicDic/";
+    r.uiLoadPromise=this.loadScript(base+"PicDic_ui.js")
+        .then(function(){
+            if(!global._picdicCreateUI&&!global._picdicUI)
+                throw new Error("PicDic_ui.js loaded without UI factory");
+            return true;
+        })
+        .catch(function(e){
+            r.uiLoadPromise=null;
+            throw e;
+        });
+
+    return r.uiLoadPromise;
 };
 
 Controller.prototype.clearSelection=function(){

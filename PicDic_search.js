@@ -1,11 +1,7 @@
-// PicDic_search.js - 优化版 v15（Shared Runtime + Hot-Start v2 增量构建 + IndexedDB 连接复用）
+// PicDic_search.js - V8 Phase 1 Slim（单文件结构瘦身，核心算法保持不变）
 (function() {
 
 // ==================== MDict 父窗口级单例与外部请求汇总 ====================
-// MDict 对词头大小写不敏感时，可能同时返回 Read/read 等多个结果 iframe。
-// window._picdic_loaded 只能约束单个 iframe，无法阻止每个 iframe 各自初始化一套主界面。
-// 因此在 MDict 中将主实例锁提升到可访问的父窗口：第一个实例成为 owner，
-// 后续实例只把外部查询上报给 owner，并隐藏自身 iframe/容器。
 var _initialExternalWord = window._picdic_word || null;
 var _initialExternalDictId = window._picdic_dictId || null;
 var _picdicEarlyIsMDict = window.location.protocol === 'mdx:';
@@ -36,8 +32,6 @@ function _picdicIsPicDicEntryWord(value) {
 
 function _picdicDetectPicDicMainEntry() {
     if (!_picdicEarlyIsMDict) return false;
-    // MDict 通常会把 APP 当前主词条写入 _picdic_word。该值在页面内部查询/切换后仍保持不变，
-    // 因而比 input 当前内容更适合判断宿主主词条。
     if (_picdicIsPicDicEntryWord(_initialExternalWord)) return true;
     try {
         var href = decodeURIComponent(String(window.location.href || ''));
@@ -60,7 +54,6 @@ function _picdicGetSafeHostWindow() {
         return window;
     }
     try {
-        // 读取 document 以确认同源且可访问。
         void window.parent.document;
         return window.parent;
     } catch (e) {
@@ -76,7 +69,6 @@ function _picdicIsRegistryOwnerAlive(registry) {
         var ownerDocument = ownerWindow.document;
         if (!ownerDocument || !ownerDocument.documentElement) return false;
         var frame = ownerWindow.frameElement;
-        // iframe 被结果页移除后，旧 registry 视为失效。
         if (frame && frame.isConnected === false) return false;
         return true;
     } catch (e) {
@@ -122,10 +114,8 @@ function _picdicAppendRegistryRequest(registry, word, dictId, sourceWindow) {
     }
     return true;
 }
-// expose for PT-ZH_DPC_V2026.js
 window._ptzh_picdic_appendRequest =
     _picdicAppendRegistryRequest;
-
 
 function _picdicParseJumpRequest(raw) {
     if (!raw) return null;
@@ -186,7 +176,6 @@ function _picdicSuppressDuplicateInstance() {
         }
     }
 
-    // 即使 .PIC_DIC 稍后才由模板/宿主插入，也确保不会闪现第二套界面。
     try {
         var style = document.createElement('style');
         style.id = 'picdic-duplicate-instance-style';
@@ -204,7 +193,6 @@ function _picdicSuppressDuplicateInstance() {
         document.addEventListener('DOMContentLoaded', hideLocalUi, { once: true });
     }
 
-    // 直接折叠重复结果 iframe；保留节点本身，避免影响父页 iframe/标题的索引对应。
     try {
         var frame = window.frameElement;
         if (frame) {
@@ -218,7 +206,6 @@ function _picdicSuppressDuplicateInstance() {
 }
 
 _picdicHostWindow = _picdicGetSafeHostWindow();
-// 嵌入模式不消费/继承跨页跳转请求，避免历史 localStorage 请求覆盖当前 PTZH_ENTRY。
 _picdicEarlyJumpRequest = _picdicEmbeddedMode ? null : _picdicReadEarlyJumpRequest(_picdicHostWindow);
 
 if (_picdicEarlyIsMDict && _picdicHostWindow !== window) {
@@ -233,7 +220,6 @@ if (_picdicEarlyIsMDict && _picdicHostWindow !== window) {
 
         if (existingRegistry && (_picdicEarlyJumpRequest || _picdicEmbeddedMode)) {
             // 跨页进入 picdic，或文字词典主动进入 embedded PicDic：当前窗口接管可视主实例。
-            // 无论 MDict 复用原 iframe，还是创建新 iframe，都重置并接管主实例。
             if (existingRegistry.ownerWindow !== window) {
                 _picdicRetireRegistryOwner(existingRegistry);
             }
@@ -269,8 +255,6 @@ if (_picdicEarlyIsMDict && _picdicHostWindow !== window) {
             _picdicHostWindow.__PICDIC_MAIN_REGISTRY__ = existingRegistry;
         }
         _picdicHostRegistry = existingRegistry;
-        // owner 在继续初始化前先登记自身请求。主词条跳转显示真正的内部查询词，
-        // 不把宿主入口词 "picdic" 当成查询请求。
         _picdicAppendRegistryRequest(
             _picdicHostRegistry,
             _picdicEarlyJumpRequest ? _picdicEarlyJumpRequest.word : _initialExternalWord,
@@ -278,16 +262,12 @@ if (_picdicEarlyIsMDict && _picdicHostWindow !== window) {
             window
         );
     } catch (e) {
-        // 父窗口不可访问或宿主限制时，回退到原有单窗口逻辑。
         _picdicHostRegistry = null;
     }
 }
 
-
 // ==================== 外部查询请求管理与容器稳定 ====================
 window._picdic_requests = _picdicHostRegistry ? _picdicHostRegistry.requests : (window._picdic_requests || []);
-// 初始外部词条已在父窗口级单例检测前保存。
-// 如果已加载，则后续加载直接返回，不影响已有界面，但请求列表仍可更新
 
 var _picdic_stabilizeTimer = null;
 
@@ -312,8 +292,6 @@ function addExternalRequest(word, dictId) {
         _requestKey: requestKey
     });
 
-    // embedded 模式下没有 MDict registry.refresh，需要主动刷新请求列表
-    // 否则请求已写入 _picdic_requests，但界面不会显示“📥 查询请求”
     if (typeof updateRequestList === 'function') {
         try { updateRequestList(); } catch (e) {}
     }
@@ -321,9 +299,7 @@ function addExternalRequest(word, dictId) {
     return true;
 }
 
-// expose for PT-ZH embedded host
 window.addExternalRequest = addExternalRequest;
-
 
 function replaceExternalRequests(words, dictId) {
     words = Array.isArray(words) ? words : [words];
@@ -337,7 +313,6 @@ function replaceExternalRequests(words, dictId) {
         if (_picdicHostRegistry) _picdicHostRegistry.requests = targetRequests;
     }
 
-    // 必须原地清空：其他代码可能持有 requests 数组引用。
     targetRequests.splice(0, targetRequests.length);
 
     var seen = Object.create(null);
@@ -374,7 +349,6 @@ function replaceExternalRequests(words, dictId) {
     return targetRequests.length;
 }
 
-// Embedded Controller 使用：切换 Controller 时“替换”当前请求组，而不是向旧词典继续追加。
 window.replaceExternalRequests = replaceExternalRequests;
 
 function updateRequestList() {
@@ -403,7 +377,6 @@ spanwords.addEventListener('click', function(e) {
         var input = document.getElementById('searchInput');
         if (input) {
             input.value = req.word;
-            // 优先使用全局函数，若不存在则回退到闭包中的 performSearch
             var searchFn = window._picdic_performSearch || (typeof performSearch === 'function' ? performSearch : null);
             if (searchFn) {
                 searchFn(null, { external: true });
@@ -428,7 +401,6 @@ spanwords.addEventListener('click', function(e) {
 
 if (_picdicHostRegistry) {
     _picdicHostRegistry.refresh = function() {
-        // refresh 可能在 owner UI 尚未构建时由重复 iframe 调用；此时静默等待后续 stabilize。
         if (document.querySelector('.PIC_DIC')) {
             updateRequestList();
         }
@@ -437,35 +409,28 @@ if (_picdicHostRegistry) {
 window._ptzh_picdic_registry =
     _picdicHostRegistry;
 
-
 function stabilizePicDic() {
     if (_picdic_stabilizeTimer) {
         clearTimeout(_picdic_stabilizeTimer);
         _picdic_stabilizeTimer = null;
     }
     _picdic_stabilizeTimer = setTimeout(function() {
-        // 1. 清理多余的 .PIC_DIC 容器（只保留第一个）
         var containers = document.querySelectorAll('.PIC_DIC');
         if (containers.length > 1) {
             for (var i = containers.length - 1; i > 0; i--) {
                 containers[i].parentNode.removeChild(containers[i]);
             }
         }
-        // 2. 显示保留的容器
         var mainContainer = document.querySelector('.PIC_DIC');
         if (mainContainer) {
             mainContainer.style.display = '';
         }
-        // 3. 更新请求列表（仅显示，不触发搜索）
         updateRequestList();
-        // ★ 绝对不执行 performSearch()
     }, 500);
 }
 
-
 // ==================== 单例检测 ====================
 if (window._picdic_loaded) {
-    // 后续加载：只添加请求，不初始化
     if (_initialExternalWord) {
         addExternalRequest(_initialExternalWord, _initialExternalDictId);
         stabilizePicDic();
@@ -473,16 +438,13 @@ if (window._picdic_loaded) {
     return;
 }
 
-// 第一次加载：记录初始请求
 if (_initialExternalWord) {
     addExternalRequest(_initialExternalWord, _initialExternalDictId);
 }
 // ===================================================
 
     'use strict';
-    // ★ 新增：全局标志，标记是否已完成首次搜索
     window._picdic_initialSearchDone = false;
-
 
 // ==================== 预加载管理器 ====================
 class PreloadManager {
@@ -757,7 +719,6 @@ class ConfigManager {
         this._callbacks = [];
     }
 
-    // ---------- 全局配置 ----------
     getGlobal(key) {
         return this.store.data.globalConfig[key];
     }
@@ -766,7 +727,6 @@ class ConfigManager {
         this._onChange();
     }
 
-    // ---------- 当前词典配置 ----------
     getDict(key) {
         return this.store.data.dictConfig[key];
     }
@@ -775,7 +735,6 @@ class ConfigManager {
         this._onChange();
     }
 
-    // ---------- 指定词典配置 ----------
     getDictFor(dictId, key) {
         if (!this.store.data.allDictConfigs[dictId]) return undefined;
         return this.store.data.allDictConfigs[dictId][key];
@@ -804,7 +763,6 @@ class ConfigManager {
         return this.store.data.allDictConfigs;
     }
 
-    // 注册变更回调
     onChange(callback) {
         this._callbacks.push(callback);
     }
@@ -814,7 +772,6 @@ class ConfigManager {
         this._callbacks.forEach(function(fn) { fn(); });
     }
 
-    // 手动通知变更（用于批量修改后触发）
     notifyChange() {
         this._onChange();
     }
@@ -982,7 +939,6 @@ var state = {
     historyStore: null,
     configManager: null,
     config: {
-        // 以下三个字段将在 afterConfigReady 中指向 configManager.store.data
         globalConfig: Object.assign({}, DEFAULT_GLOBAL_CONFIG),
         dictConfig: Object.assign({}, DEFAULT_DICT_CONFIG),
         allDictConfigs: {},
@@ -996,7 +952,6 @@ var state = {
     cache: {
         historyWriteTimer: null,
         dictionaryIndex: null,
-        // 搜索派生缓存：仅在词典加载/切换时构建或从 IndexedDB 恢复，查询时不再全量扫描索引。
         _normalizedKeys: null,       // 去重并有序的规范化键
         _sortedKeys: null,           // 与 _normalizedKeys 对齐的代表原始词头（兼容旧字段名）
         _keyMap: null,               // 规范化键 -> 原始词头数组（一对多）
@@ -1004,7 +959,6 @@ var state = {
         _searchCacheDictId: null,
         _searchCacheIndexPath: null,
         _searchCacheRawKeyCount: 0,
-        // Embedded hot-start：只在内存中保留当前查询所需的轻量索引分片。
         _hotLite: false,
         _hotMeta: null,
         _hotBaseKey: null,
@@ -1158,7 +1112,6 @@ var UrlBuilder = {
 };
 
 function debugLog(msg) {
-    // 调试关闭时直接返回，避免 Android WebView 中大量 console 输出拖慢外部查询。
     if (!state || !state.config || !state.config.globalConfig ||
         !state.config.globalConfig.DebugPanel_display || !state.ui) {
         return;
@@ -1173,7 +1126,6 @@ function debugLog(msg) {
     }
     console.log('[PicDic DEBUG]', msg);
 }
-
 
 // ==================== Resource ID 持久映射 ====================
 function getResourceEnvironmentKey() {
@@ -1357,62 +1309,49 @@ function clearManualResourceId(dictId) {
 }
 
 // ==================== 资源ID更新 ====================
+function commitDetectedResourceIds(detected, source, label, logMissing) {
+    var dictList = window.picdic_dictList || {};
+    var updatedCount = 0;
+    for (var key in dictList) {
+        if (!Object.prototype.hasOwnProperty.call(dictList, key)) continue;
+        var actualId = detected[key];
+        if (!actualId) {
+            if (logMissing) debugLog('⚠️ 未在宿主页面中找到词典 "' + key + '"');
+            continue;
+        }
+        if (cacheDetectedResourceId(key, actualId, source)) {
+            updatedCount++;
+            debugLog('🔄 ' + label + '更新并缓存词典 "' + key + '" 的 resourceId: ' + actualId);
+        } else {
+            applyEffectiveResourceId(key);
+        }
+    }
+    if (updatedCount > 0) {
+        debugLog('✅ ' + label + '已更新并持久保存 ' + updatedCount + ' 个词典的 resourceId');
+        state.configManager.notifyChange();
+    } else {
+        debugLog('ℹ️ ' + label + '没有词典需要更新 resourceId');
+    }
+}
+
 function updateResourceIdsFromParent() {
     if (!_env.isMDictAndroid) return;
     try {
         var parentWin = window.parent;
-        if (parentWin === window) {
-            debugLog('⚠️ 当前不在 iframe 中，无法更新 resourceId');
-            return;
-        }
-        var dictList = window.picdic_dictList;
-        if (!dictList || typeof dictList !== 'object') {
-            debugLog('⚠️ picdic_dictList 未定义或无效');
-            return;
+        if (parentWin === window) return debugLog('⚠️ 当前不在 iframe 中，无法更新 resourceId');
+        if (!window.picdic_dictList || typeof window.picdic_dictList !== 'object') {
+            return debugLog('⚠️ picdic_dictList 未定义或无效');
         }
         var titles = parentWin.document.querySelectorAll('.__mdx_css_title');
         var iframes = parentWin.document.getElementsByTagName('iframe');
-        if (titles.length === 0 || iframes.length === 0) {
-            debugLog('⚠️ 未找到词典标题或 iframe');
-            return;
+        if (!titles.length || !iframes.length) return debugLog('⚠️ 未找到词典标题或 iframe');
+        var detected = {};
+        var count = Math.min(titles.length, iframes.length);
+        for (var i = 0; i < count; i++) {
+            var match = String(iframes[i].src || '').match(/\/iframe\/(\d+)/);
+            if (match) detected[titles[i].textContent.trim()] = match[1];
         }
-        var updatedCount = 0;
-        for (var key in dictList) {
-            if (!dictList.hasOwnProperty(key)) continue;
-            var dict = dictList[key];
-            var targetName = key;
-            var found = false;
-            for (var i = 0; i < titles.length; i++) {
-                var titleText = titles[i].textContent.trim();
-                if (titleText === targetName) {
-                    var iframe = iframes[i];
-                    if (!iframe) break;
-                    var src = iframe.src;
-                    var match = src.match(/\/iframe\/(\d+)/);
-                    if (match) {
-                        var actualId = match[1];
-                        if (cacheDetectedResourceId(key, actualId, 'MDict 父页面检测')) {
-                            updatedCount++;
-                            debugLog('🔄 更新并缓存词典 "' + key + '" 的 resourceId: ' + actualId);
-                        } else {
-                            applyEffectiveResourceId(key);
-                            debugLog('ℹ️ 词典 "' + key + '" 的 resourceId 映射无需更新: ' + actualId);
-                        }
-                        found = true;
-                    }
-                    break;
-                }
-            }
-            if (!found) {
-                debugLog('⚠️ 未在父窗口中找到词典 "' + key + '" 的标题');
-            }
-        }
-        if (updatedCount > 0) {
-            debugLog('✅ 已更新并持久保存 ' + updatedCount + ' 个词典的 resourceId');
-            state.configManager.notifyChange();
-        } else {
-            debugLog('ℹ️ 没有词典需要更新 resourceId');
-        }
+        commitDetectedResourceIds(detected, 'MDict 父页面检测', '', true);
     } catch (e) {
         debugLog('❌ 更新 resourceId 失败: ' + e.message);
     }
@@ -1421,58 +1360,20 @@ function updateResourceIdsFromParent() {
 function updateResourceIdsFromGoldenDict() {
     if (!_env.isGoldenDictAndroid) return;
     try {
-        var dictList = window.picdic_dictList;
-        if (!dictList) return;
-        var nameMap = {};
+        if (!window.picdic_dictList) return;
+        var detected = {};
         var articleSpans = document.querySelectorAll('span.gdarticle');
         for (var i = 0; i < articleSpans.length; i++) {
             var span = articleSpans[i];
-            var id = span.id;
-            var match = id.match(/gdarticle-([a-f0-9]+)/);
-            if (match) {
-                var hash = match[1];
-                var nameEl = span.querySelector('div.gddictname');
-                if (nameEl) {
-                    var nameText = nameEl.textContent.trim();
-                    if (nameText.indexOf('From ') === 0) {
-                        nameText = nameText.substring(5).trim();
-                    }
-                    nameMap[nameText] = hash;
-                }
-            }
+            var match = String(span.id || '').match(/gdarticle-([a-f0-9]+)/);
+            if (!match) continue;
+            var nameEl = span.querySelector('div.gddictname');
+            if (!nameEl) continue;
+            var nameText = nameEl.textContent.trim();
+            if (nameText.indexOf('From ') === 0) nameText = nameText.substring(5).trim();
+            detected[nameText] = match[1];
         }
-        if (Object.keys(nameMap).length === 0) {
-            var refSpans = document.querySelectorAll('span.gdarticleref');
-            for (var i = 0; i < refSpans.length; i++) {
-                var span = refSpans[i];
-                var id = span.id;
-                var match = id.match(/gdarticleref-([a-f0-9]+)/);
-                if (match) {
-                    // 无法知道名称，跳过
-                }
-            }
-        }
-        var updatedCount = 0;
-        for (var key in dictList) {
-            if (!dictList.hasOwnProperty(key)) continue;
-            var dict = dictList[key];
-            var targetName = key;
-            if (nameMap[targetName]) {
-                var actualHash = nameMap[targetName];
-                if (cacheDetectedResourceId(key, actualHash, 'GoldenDict DOM 检测')) {
-                    updatedCount++;
-                    debugLog('🔄 [GoldenDict] 更新并缓存词典 "' + key + '" 的 resourceId: ' + actualHash);
-                } else {
-                    applyEffectiveResourceId(key);
-                }
-            }
-        }
-        if (updatedCount > 0) {
-            debugLog('✅ [GoldenDict] 已更新并持久保存 ' + updatedCount + ' 个词典的 resourceId');
-            state.configManager.notifyChange();
-        } else {
-            debugLog('ℹ️ [GoldenDict] 没有词典需要更新 resourceId');
-        }
+        commitDetectedResourceIds(detected, 'GoldenDict DOM 检测', '[GoldenDict] ', false);
     } catch (e) {
         debugLog('❌ [GoldenDict] 更新 resourceId 失败: ' + e.message);
     }
@@ -1637,7 +1538,6 @@ function setResourceElementHidden(element, shouldHide) {
         element.removeAttribute(marker);
         element.removeAttribute(previous);
     } else if (element.style.display === 'none') {
-        // 兼容旧版本曾经对所有标题直接写入 display:none 的情况。
         element.style.display = '';
     }
 }
@@ -1666,7 +1566,6 @@ function applyHideDictTitles() {
     try {
         var identity = getEffectiveResourceIdentityMap();
 
-        // ---- MDict：仅隐藏当前分组中具有有效 resourceId 的资源词典标题 ----
         if (_env.isMDictAndroid) {
             var parentWin = window.parent;
             if (parentWin === window || !parentWin.document) return;
@@ -1695,9 +1594,7 @@ function applyHideDictTitles() {
             return;
         }
 
-        // ---- GoldenDict：仅隐藏具有有效 resourceId 的资源词典 article ----
         if (_env.isGoldenDictAndroid) {
-            // 移除旧版本的全局隐藏样式，避免普通词典标题继续被隐藏。
             var oldStyle = document.getElementById('picdic-hide-gd');
             if (oldStyle && oldStyle.parentNode) oldStyle.parentNode.removeChild(oldStyle);
 
@@ -1804,43 +1701,33 @@ function getDictLangCode(dictId, type) {
         return -1;
     }
 
-
     var dict = dictList[dictId];
 
     if (!dict) return -1;
 
-
     var keyType;
-
 
     if (type === 'target') {
 
-        // 目标语言
         keyType = dict.contents_language || 'zho';
 
     } else {
 
-        // 源语言
         keyType = dict.index_language || 'eng';
 
     }
 
-
     var key = String(keyType).toLowerCase().trim();
-
 
     if (typeof PicDicLang !== 'undefined') {
 
-        // ISO 639-2 / alias 转 ISO 639-1
         if (PicDicLang.ALIAS_MAP && PicDicLang.ALIAS_MAP[key]) {
             key = PicDicLang.ALIAS_MAP[key];
         }
 
-
         var code =
             PicDicLang.ISO_TO_GD_CODE &&
             PicDicLang.ISO_TO_GD_CODE[key];
-
 
         if (code !== undefined) {
             return code;
@@ -1848,15 +1735,12 @@ function getDictLangCode(dictId, type) {
 
     }
 
-
-    // 兼容 fallback
     var fallback = {
         'en': 28261,
         'de': 25956,
         'pt': 29808,
         'zh': 26746
     };
-
 
     return fallback[key] || -1;
 }
@@ -1940,7 +1824,6 @@ function mergeDictConfig(dictId, newConfig) {
     var targetConfig = state.configStore.data.allDictConfigs[dictId];
 
     if (!newConfig || typeof newConfig !== 'object') {
-        // 只将目标词典已有配置/默认值写入目标词典；仅当它仍是当前词典时才同步到 dictConfig。
         for (var key in DEFAULT_DICT_CONFIG) {
             var value = (key in targetConfig) ? targetConfig[key] : DEFAULT_DICT_CONFIG[key];
             targetConfig[key] = value;
@@ -1989,17 +1872,13 @@ function replaceDictSettings(dictId, sourceConfig) {
 function getPagesForWord(wordToPages, word) {
     var entry = wordToPages[word];
     if (!entry) return null;
-    // 如果是数组
     if (Array.isArray(entry)) {
         if (entry.length > 0 && typeof entry[0] === 'object') {
-            // 新格式：对象数组，提取 pg
             return entry.map(function(item) { return item.pg; });
         } else {
-            // 旧格式：字符串数组，直接返回
             return entry;
         }
     } else if (typeof entry === 'string') {
-        // 旧格式：单个字符串，转为数组返回
         return [entry];
     }
     return null;
@@ -2009,8 +1888,7 @@ function getPagesForWord(wordToPages, word) {
 function buildPageWordPositions(indexData) {
     if (!indexData || !indexData.wordToPages) return {};
     var wordToPages = indexData.wordToPages;
-    
-    // 检查是否包含坐标信息：取第一个词条的第一个条目，看是否有 col/y/ord
+
     var hasCoordinate = false;
     var firstKey = firstOwnKey(wordToPages);
     if (firstKey) {
@@ -2022,17 +1900,14 @@ function buildPageWordPositions(indexData) {
             }
         }
     }
-    // 如果没有坐标信息，直接返回空对象
     if (!hasCoordinate) {
         debugLog('ℹ️ wordToPages 中无坐标信息（col/y/ord），跳过生成 pageWordPositions');
         return {};
     }
-    
-    // 存在坐标信息，开始生成
+
     var pagePositions = {};
     for (var word in wordToPages) {
         var entry = wordToPages[word];
-        // 处理旧格式：单个字符串（但旧格式不会有坐标，但以防万一）
         if (typeof entry === 'string') {
             var pg = entry;
             if (!pagePositions[pg]) pagePositions[pg] = [];
@@ -2040,7 +1915,6 @@ function buildPageWordPositions(indexData) {
             continue;
         }
         if (!Array.isArray(entry)) continue;
-        // 处理旧格式：字符串数组
         if (entry.length > 0 && typeof entry[0] === 'string') {
             entry.forEach(function(pg) {
                 if (!pagePositions[pg]) pagePositions[pg] = [];
@@ -2048,7 +1922,6 @@ function buildPageWordPositions(indexData) {
             });
             continue;
         }
-        // 处理新格式：对象数组
         if (entry.length > 0 && typeof entry[0] === 'object') {
             entry.forEach(function(item) {
                 var pg = item.pg;
@@ -2065,7 +1938,6 @@ function buildPageWordPositions(indexData) {
     }
     return pagePositions;
 }
-
 
 function normalize(word) {
     if (!word) return '';
@@ -2210,8 +2082,6 @@ function removeIndexOrderWarning() {
 }
 
 // ==================== IndexedDB 封装 ====================
-// v15：复用同一个 IndexedDB 连接。GoldenDict 连续词条页中的一次 PicDic 生命周期内，
-// 避免每个 get/put/bulk 操作都重新 indexedDB.open()。
 var _picdicDbPromise = null;
 
 function resetOpenDBConnection() {
@@ -2248,7 +2118,6 @@ function openDB() {
                 try { db.close(); } catch (e) {}
                 resetOpenDBConnection();
             };
-            // 部分 WebView 支持 close 事件；若连接被宿主关闭，下次自动重开。
             try {
                 db.onclose = function() { resetOpenDBConnection(); };
             } catch (e) {}
@@ -2261,7 +2130,6 @@ function openDB() {
         };
 
         req.onblocked = function() {
-            // 不立即 reject；让浏览器继续等待旧连接释放。
             debugLog('⚠️ IndexedDB open 被旧连接暂时阻塞');
         };
     });
@@ -2288,8 +2156,6 @@ function dbPut(storeName, key, value) {
                 return;
             }
 
-            // V7：request success 只表示请求已执行，不代表 transaction 已提交。
-            // 等 tx.oncomplete 后再向上层报告写入完成，避免半提交状态被后续读取。
             tx.oncomplete = function() { resolve(); };
             tx.onerror = function() {
                 reject(tx.error || new Error('IndexedDB transaction failed'));
@@ -2355,11 +2221,7 @@ function dbClear(storeName) {
 // V7 / Hot Cache schema 3
 // 稳定主线保持不变：Shared Runtime + Embedded Hot-start。
 // schema 3 的核心优化：
-// 1) lookup key = prefix + hash shard；查询一个词只读取该 shard 的 chunks，
-//    不再读取整个高频 prefix（如 con/des/est/pre）的全部 chunks。
-// 2) hot meta / word lookup / page positions 增加小型内存 LRU。
 // 3) page positions 已写入即可读取，不必等待整本 pagePositionsReady。
-// 4) 构建仍然分批写入并及时释放，避免首次构建的内存峰值。
 var HOT_CACHE_SCHEMA = 3;
 var HOT_WORD_PREFIX_LEN = 3;
 var HOT_WORD_SHARD_COUNT = 8;
@@ -2454,7 +2316,6 @@ function hotYield() {
 
 function scheduleHotBuildStart() {
     return new Promise(function(resolve) {
-        // 先让当前查询的 UI / 图片开始显示，再利用空闲片段构建缓存。
         if (typeof window.requestIdleCallback === 'function') {
             window.requestIdleCallback(function() { resolve(); }, { timeout: 900 });
         } else {
@@ -2621,7 +2482,6 @@ async function loadHotWordLookup(dictId, word, meta) {
         keys[i] = getHotWordChunkKey(dictId, shardName, i);
     }
 
-    // V7：只读取当前 prefix + hash shard 的 chunks。
     var chunks = await dbGetManyData(keys);
     var record = null;
 
@@ -2653,7 +2513,6 @@ async function loadHotWordLookup(dictId, word, meta) {
 
 async function loadHotPagePositions(dictId, page, meta) {
     // V7.1: restore the V6 correctness rule.
-    // Do not read from a partially-built page-position cache.
     if (!meta || !meta.pagePositionsReady) return null;
 
     var pageKey = String(page);
@@ -2732,7 +2591,6 @@ async function buildHotLookupIncrementally(dictId, indexData, meta) {
 
         await dbBulkPutData(items);
 
-        // 每批即写即释放，避免和完整 indexData 同时保留大量派生对象。
         items = null;
         batchShards = Object.create(null);
         batchWordCount = 0;
@@ -2883,7 +2741,6 @@ async function buildHotCacheForDict(dictId, indexData) {
     var rawMeta = null;
     try { rawMeta = await dbGet('data', getHotMetaKey(dictId)); } catch (e) {}
 
-    // 完整 lookup 已存在时不再重建词条 chunks；如果只是 page positions 未完成，只补 page 数据。
     if (isHotMetaValid(dictId, rawMeta)) {
         if (!indexData.pageWordPositions || rawMeta.pagePositionsReady) return true;
         debugLog('🔥 Hot lookup 已存在，仅补 page positions: ' + dictId);
@@ -2892,12 +2749,10 @@ async function buildHotCacheForDict(dictId, indexData) {
     }
 
     var meta = createHotBuildMeta(dictId, indexData, dict, cacheKey);
-    // 先发布 building meta。若页面在构建中被销毁，下一页不会把部分 chunks 当作完整缓存。
     await dbPut('data', getHotMetaKey(dictId), meta);
     debugLog('🔥 Hot cache 增量构建开始: ' + dictId);
 
     await buildHotLookupIncrementally(dictId, indexData, meta);
-    // lookup_ready 一经写入，后续新词页面已经可以走 hot-start；位置数据继续在后台补齐。
     await buildHotPagesIncrementally(dictId, indexData, meta);
     return true;
 }
@@ -2948,7 +2803,6 @@ async function prepareEmbeddedHotIndex(dictId, word) {
     var pageWordPositions = {};
     if (lookup.meta.pagePositionsReady && lookup.record.pages) {
         // V7.1: restore V6 strict positions readiness.
-        // Once the hot-position path is used, the page-position cache is complete.
         for (var i = 0; i < lookup.record.pages.length; i++) {
             var page = lookup.record.pages[i];
             var entries = await loadHotPagePositions(dictId, page, lookup.meta);
@@ -3067,7 +2921,6 @@ function savePendingMDictJumpRequest(dictId, word) {
         return request;
     }).catch(function(error) {
         debugLog('⚠️ MDict 跳转请求写入 IndexedDB 失败: ' + error.message);
-        // localStorage 或父窗口同步标记成功时仍可安全跳转；两者都失败才中止。
         if (localSaved) return request;
         var hostSaved = false;
         try {
@@ -3090,7 +2943,6 @@ async function readPendingMDictJumpRequest() {
     request = _picdicParseJumpRequest(dbRequest);
     if (request) return request;
 
-    // 清理失效残留。
     try {
         if (window.localStorage) window.localStorage.removeItem(MDICT_JUMP_REQUEST_KEY);
     } catch (e) {}
@@ -3160,9 +3012,6 @@ async function switchDictFromList(dictId, popup) {
         return;
     }
 
-    // MDict 只有在 APP 主词条不是 picdic 时才需要跨页跳转。
-    // 这样可以让 picdic 主词条同时加载资源词典；已经位于 picdic 主词条时则直接内部切换，
-    // 避免重复导航、界面闪烁和一次性请求的额外读写。
     if (_env.isMDictAndroid && !_picdicEmbeddedMode && !isCurrentMDictPicDicMainEntry()) {
         await jumpToMDictPicDic(dictId, popup);
         return;
@@ -3183,7 +3032,6 @@ async function switchDictFromList(dictId, popup) {
 function getIndexCacheKey(dictId) {
     var dict = window.picdic_dictList && window.picdic_dictList[dictId];
     var version = dict && dict.version ? dict.version : '1';
-    // schema 变更会自动避开旧缓存，防止历史上已被错误覆盖的缓存继续命中。
     return dictId + '_' + version + '_schema' + INDEX_CACHE_SCHEMA;
 }
 
@@ -3230,9 +3078,7 @@ function saveIndexToCache(dictId, cacheData) {
             '，索引归属=' + (cacheData && cacheData.indexData ? cacheData.indexData._picdicDictId : '未知'));
         return;
     }
-    // schema3：搜索派生缓存与索引一起持久化。缺失或失效时只在这里构建一次。
     cacheData.searchCache = ensureSearchCacheForData(dictId, cacheData.indexData, cacheData.searchCache);
-    // 双重附加词典ID，用于读取时校验
     cacheData._dictId = dictId;
     cacheData._indexPath = cacheData.indexData._picdicIndexPath;
     var cacheEntry = {
@@ -3255,7 +3101,6 @@ function saveIndexToCache(dictId, cacheData) {
         debugLog('❌ 索引缓存写入失败 (DB): ' + e.message);
     });
     debugLog('💾 索引和配置已缓存: ' + dictId);
-    // 后台构建轻量 hot cache，不阻塞当前词典显示。
     scheduleHotCacheBuild(dictId, cacheData.indexData);
 }
 
@@ -3276,7 +3121,6 @@ function loadIndexFromCache(dictId) {
             req.onsuccess = function() {
                 var cached = req.result;
                 if (cached && cached.version === cacheKey) {
-                    // ★ 关键校验：数据中的 _dictId 必须与当前词典一致
                     if (cached.data && cached.data._dictId === dictId &&
                         cached.data._indexPath === (window.picdic_dictList[dictId].indexPath || '') &&
                         isIndexOwnedBy(dictId, cached.data.indexData)) {
@@ -3310,7 +3154,6 @@ function clearIndexCache(dictId) {
         state.cache.preloadManager.clear();
     }
     if (dictId) {
-        // 清当前 schema，并兼容清理 v6.0 的 hot v1 残留。
         dbDeleteDataByPrefix(getHotCacheBaseKey(dictId)).catch(function() {});
         dbDeleteDataByPrefix('picdic_hot_v1::' + getIndexCacheKey(dictId)).catch(function() {});
         dbDeleteDataByPrefix('picdic_hot_v2::' + getIndexCacheKey(dictId)).catch(function() {});
@@ -3330,7 +3173,6 @@ function clearIndexCache(dictId) {
 function saveHistory(word, dictId) {
     if (state.historyStore) state.historyStore.add(word, dictId);
 }
-
 
 function clearHistory() {
     if (state.historyStore) {
@@ -3496,8 +3338,6 @@ function tryNextResource(task) {
         }
         state.configStore.data.allDictConfigs[task.dictId][task.cachedKey] = task.attempts[task.tried];
         state.configManager.notifyChange();
-        // 图标/封面属于 ConfigStore 元数据，不得用当前全局索引覆盖 task.dictId 的索引缓存。
-        // ConfigStore 会独立持久化，因此这里不需要触碰 indexCache。
         debugLog('✅ 图标/封面元数据已保存: ' + task.dictId + ' / ' + task.suffix);
         task.callback(task.attempts[task.tried]);
         _resourceActive--;
@@ -3715,15 +3555,12 @@ function showConfirm(title, message, onConfirm, onCancel) {
 
 // ==================== 应用配置 ====================
 function applyConfig() {
-    // 从 configManager 读取最新配置
     if (!state.configManager) {
-        // 可能还未初始化，使用 state.config 后备
         var globalCfg = state.config.globalConfig;
         var dictCfg = state.config.dictConfig;
     } else {
         var globalCfg = state.configManager.store.data.globalConfig;
         var dictCfg = state.configManager.store.data.dictConfig;
-        // 同步到 state.config（兼容旧代码）
         state.config.globalConfig = globalCfg;
         state.config.dictConfig = dictCfg;
         state.config.allDictConfigs = state.configManager.store.data.allDictConfigs;
@@ -3792,18 +3629,16 @@ function applyConfig() {
                 state.ui.btnContainer.style.display = 'none';
             }
         }
-        // 控制底部信息栏：放大时隐藏，正常时显示
         if (state.ui.footerElement) {
 	    var isDark = state.config.globalConfig.darkMode;
-	    var bgColor = isDark ? 
-	        state.config.globalConfig.darkModeBgColor : 
+	    var bgColor = isDark ?
+	        state.config.globalConfig.darkModeBgColor :
 	        state.config.globalConfig.lightModeBgColor;
 	    var textColor = isDark ? '#cccccc' : '#666666';
 	    var borderColor = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)';
 	    state.ui.footerElement.style.backgroundColor = bgColor;
 	    state.ui.footerElement.style.color = textColor;
 	    state.ui.footerElement.style.borderTopColor = borderColor;
-	    // 控制显示/隐藏
 	    state.ui.footerElement.style.display = (state.interaction.scale > 1.01) ? 'none' : 'block';
 	}
         if (!state.ui._cachedNavSpans) {
@@ -3818,7 +3653,7 @@ function applyConfig() {
             }
         }
         debugLog('配置已应用 | 全局: ' + '省略...' + ' | 词典: ' + JSON.stringify(dictCfg));
-        
+
         if (state.ui.pageNum && state.interaction.wrapper && state.cache._hasPagePositions) {
 	    drawWordAnnotations(state.ui.pageNum);
 	}
@@ -3958,7 +3793,7 @@ function loadIndexAndConfigSync(dictId, indexPath, configPath) {
                 debugLog('📥 脚本加载成功: ' + script.src);
                 indexData = window._dictIndex || null;
                 delete window._dictIndex;
-                
+
                 if (!indexData) {
                     if (!triedAbsolute && !_env.isGoldenDictAndroid) {
                         triedAbsolute = true;
@@ -4054,12 +3889,10 @@ async function loadIndexAndConfig(dictId) {
             debugLog('📥 缓存数据 pages 长度=' + (cached.indexData.pages ? cached.indexData.pages.length : 'null'));
             setActiveDictionaryIndex(dictId, cached.indexData);
 
-            // schema3 优先恢复持久化的一对多搜索缓存；仅在缺失/损坏时扫描索引重建一次。
             var cachedSearchCacheWasValid = isSearchCacheOwnedBy(dictId, cached.indexData, cached.searchCache);
             var loadedSearchCacheForDict = cacheNormalizedKeys(cached.searchCache);
             var cacheNeedsRefresh = !cachedSearchCacheWasValid;
 
-            // 确保 pageWordPositions 存在
             if (!cached.indexData.pageWordPositions) {
                 cached.indexData.pageWordPositions = buildPageWordPositions(cached.indexData);
                 state.cache._hasPagePositions = !!(cached.indexData.pageWordPositions &&
@@ -4097,9 +3930,7 @@ async function loadIndexAndConfig(dictId) {
             }
             debugLog('✅ 从缓存加载索引和配置完成: ' + dictId);
             debugLog('📥 当前索引 pages 长度=' + (state.cache.dictionaryIndex ? state.cache.dictionaryIndex.pages.length : 'null'));
-            // 旧版本已有大对象缓存但还没有 hot cache 时，在后台补建一次。
             scheduleHotCacheBuild(dictId, cached.indexData);
-            // 捕获“该词典自己的索引/搜索缓存”引用，异步回调不得读取可能已切换的全局状态。
             var loadedIndexForDict = cached.indexData;
             var persistentSearchCacheForDict = loadedSearchCacheForDict;
             loadDictConfigJS(configPath, dictId).then(function(newConfig) {
@@ -4140,7 +3971,6 @@ async function loadIndexAndConfig(dictId) {
             state.ui.resultDiv.innerHTML = '⏳ 正在加载词典索引，请稍候...';
         }
         await loadIndexAndConfigSync(dictId, indexPath, configPath);
-        // loadIndexAndConfigSync 已构建并应用搜索缓存，不再重复全量遍历索引。
         debugLog('📥 同步加载完成，索引 pages 长度=' + (state.cache.dictionaryIndex ? state.cache.dictionaryIndex.pages.length : 'null'));
         if (state.ui.resultDiv) state.ui.resultDiv.innerHTML = '';
     } catch (err) {
@@ -4215,7 +4045,6 @@ function buildSearchCacheData(dictId, indexData) {
         keyMap[normKey].push(originalKey);
     }
 
-    // 正常的索引本身已有序；只有检测到乱序时才排序一次。
     if (!alreadySorted) {
         normalizedKeys.sort(compareNormalizedKeys);
     }
@@ -4308,13 +4137,11 @@ function addEntryOrds(entry, ords, ordMap, pageOrdMap) {
         if (!item || typeof item !== 'object' || item.ord === undefined || item.ord === null) continue;
         var ordKey = String(item.ord);
 
-        // 保留全局集合仅用于兼容旧字段和调试，不再直接用于高亮。
         if (!hasOwnKey(ordMap, ordKey)) {
             ordMap[ordKey] = true;
             ords.push(item.ord);
         }
 
-        // ord 在 FAREAST 等索引中可能按页重复，必须绑定页码后才能唯一定位。
         if (item.pg !== undefined && item.pg !== null && item.pg !== '') {
             var pageKey = String(item.pg);
             if (!hasOwnKey(pageOrdMap, pageKey)) {
@@ -4405,21 +4232,20 @@ function constrainTransform() {
     state.interaction.img.style.transform = 'translate(' + state.interaction.translateX + 'px, ' + state.interaction.translateY + 'px) scale(' + state.interaction.scale + ')';
 }
 
+function setTransformState(scale, x, y) {
+    state.interaction.scale = scale;
+    state.interaction.translateX = x || 0;
+    state.interaction.translateY = y || 0;
+}
+
 function resetView() {
-    state.interaction.scale = 1;
-    state.interaction.translateX = 0;
-    state.interaction.translateY = 0;
+    setTransformState(1, 0, 0);
     updateTransform();
     applyConfig();
 }
 
-
 // ==================== V7.3 统一横向列定位 ====================
 // 统一 source of truth：
-// 1) 左/右裁剪 -> effective horizontal range
-// 2) x -> col
-// 3) col -> viewport translate delta（首列左对齐、末列右对齐、中间列左边界对齐）
-// 外部查询、双击/长按、列导航均复用这套逻辑。
 
 function getEffectiveHorizontalGeometry(columns) {
     if (!state.interaction.img || !state.interaction.wrapper) return null;
@@ -4492,8 +4318,6 @@ function getCurrentHorizontalColumn(columns) {
     var g = getEffectiveHorizontalGeometry(columns);
     if (!g || !g.columnWidth) return 0;
 
-    // 手动拖动后仍能正确识别当前视口主要落在哪一列：
-    // 使用视口中心点判断，而不是依赖旧 translateX 数学假设。
     var viewCenterX = g.wrapperRect.width / 2;
     var col = Math.floor((viewCenterX - g.effectiveLeft) / g.columnWidth);
     return clampHorizontalColumn(col, g.columns);
@@ -4509,27 +4333,22 @@ function getColumnHorizontalDelta(col, columns) {
     if (marginPercent < 0) marginPercent = 0;
     if (marginPercent > 25) marginPercent = 25;
 
-    // 安全边距属于 viewport 视觉留白，因此使用当前 viewport 宽度的百分比。
     var marginPx = g.wrapperRect.width * marginPercent / 100;
 
-    // 单列时：优先左侧有效边缘对齐左侧 margin。
     if (g.columns <= 1) {
         return marginPx - g.effectiveLeft;
     }
 
-    // 最左列：有效内容左边缘严格对齐左侧 margin。
     if (col === 0) {
         return marginPx - g.effectiveLeft;
     }
 
-    // 最右列：有效内容右边缘严格对齐右侧 margin。
     if (col === g.columns - 1) {
         var effectiveRight = g.effectiveLeft + g.effectiveWidth;
         var desiredRight = g.wrapperRect.width - marginPx;
         return desiredRight - effectiveRight;
     }
 
-    // 中间列：该列左边界对齐左侧 margin。
     var targetLeft = g.effectiveLeft + col * g.columnWidth;
     return marginPx - targetLeft;
 }
@@ -4594,17 +4413,13 @@ function toggleZoom(cx, cy) {
         var scaledHeight = baseHeight * newScale;
 
         // V7.3：点击 x 不再直接作为缩放中心。
-        // 先在“左右裁剪后的有效区域”判断点击属于哪一列，
-        // 再由统一 col -> viewport 算法决定最终横向位置。
         var columns = Math.round(zoomFactor);
         if (columns < 1) columns = 1;
         var clickCol = getColumnFromWrapperX(cx, columns);
 
-        // 纵向逻辑保持原版完全不变。
         var py = cy / containerHeight;
         var targetY = containerHeight / 2 - py * scaledHeight;
 
-        // 横向先归零，待 scale/layout 落地后用真实 rect 做统一列定位。
         state.interaction.translateX = 0;
         state.interaction.translateY = targetY;
 
@@ -4623,14 +4438,12 @@ function toggleZoom(cx, cy) {
     applyConfig();
 }
 
-// 新增辅助函数
 /**
  * 设置 wrapper 高度，以填充屏幕可用空间（放大时）或恢复默认（缩小时）
  * @param {boolean} expand - true 表示扩展高度，false 表示恢复默认
  */
 function setWrapperHeight(expand) {
     if (!state.interaction.wrapper) return;
-    // 检查配置开关（默认开启）
     if (!state.config.globalConfig.enableExpandOnZoom) {
         state.interaction.wrapper.style.height = '100%';
         state.layout.isExpanded = false;
@@ -4638,29 +4451,24 @@ function setWrapperHeight(expand) {
     }
 
     if (expand) {
-        // 计算可用高度：窗口高度 - 顶部工具栏高度 - 底部安全边距
         var toolbar = document.querySelector('.picdic-toolbar-wrapper');
         var toolbarHeight = toolbar ? toolbar.offsetHeight : 0;
         var margin = 10;
         var availableHeight = window.innerHeight - toolbarHeight - margin;
-        // 保证最小高度，避免过小
         if (availableHeight < 200) availableHeight = 200;
         state.interaction.wrapper.style.height = availableHeight + 'px';
         state.layout.isExpanded = true;
         state.layout.expandedHeight = availableHeight;
     } else {
-        // 恢复原始高度
         state.interaction.wrapper.style.height = '100%';
         state.layout.isExpanded = false;
     }
 
-    // 立即更新缓存，确保后续约束计算准确
     if (state.interaction.wrapper) {
         state.layout.wrapperRect = state.interaction.wrapper.getBoundingClientRect();
         state.layout.containerHeight = state.layout.wrapperRect.height;
     }
 }
-
 
 function getCurrentCol() {
     if (!state.interaction.img) return 0;
@@ -4870,9 +4678,7 @@ function applyLoadedImage(page, direction, keepScale, callback, startTime) {
     debugLog('📄 img naturalWidth=' + state.interaction.img.naturalWidth + ', naturalHeight=' + state.interaction.img.naturalHeight);
     state.ui.pageNum = page;
     if (!keepScale) {
-        state.interaction.scale = 1;
-        state.interaction.translateX = 0;
-        state.interaction.translateY = 0;
+        setTransformState(1, 0, 0);
     } else {
         var containerRect = state.interaction.wrapper.getBoundingClientRect();
         var containerWidth = containerRect.width;
@@ -4897,7 +4703,6 @@ function applyLoadedImage(page, direction, keepScale, callback, startTime) {
             state.interaction.translateY = 0;
         }
     }
-    // 在 updateTransform 之前设置高度
     if (state.interaction.scale > 1.01) {
         setWrapperHeight(true);
     } else {
@@ -4970,7 +4775,6 @@ function setActiveImageSource(source, page, direction, keepScale, callback, labe
     image.onerror = function() { finish(new Error('图片加载失败')); };
     image.src = src;
 
-    // 相同 src 或内存/blob 缓存可能已经同步处于 complete 状态。
     if (image.complete && image.naturalWidth > 0) {
         setTimeout(function() { finish(null); }, 0);
     }
@@ -5131,7 +4935,6 @@ function updateTransform() {
         state.interaction.translateY = 0;
         state.interaction.img.style.transform = 'translate(0, 0) scale(' + state.interaction.scale + ')';
         updateHotZones();
-        // 缩放后触发重绘
         scheduleAnnotationUpdate();
         return;
     }
@@ -5142,15 +4945,12 @@ function updateTransform() {
             state.interaction.transformPending = false;
             constrainTransform();
             updateHotZones();
-            // 缩放/平移后触发重绘
             scheduleAnnotationUpdate();
         });
     }
 }
 
 // ==================== 词条高亮层重绘调度 ====================
-// 拖动过程中只隐藏覆盖层，不计算坐标；拖动结束后等待最终 transform / constrainTransform
-// 真正落地并经过浏览器布局，再基于最终 getBoundingClientRect() 强制重绘。
 function hideWordAnnotationsLayer() {
     if (!state.interaction.wrapper) return;
     var layer = state.interaction.wrapper.querySelector('.picdic-word-annotations');
@@ -5184,7 +4984,6 @@ function cancelAnnotationUpdateTimer() {
 function scheduleAnnotationUpdate() {
     if (!state.ui.pageNum || !state.cache._hasPagePositions) return;
 
-    // 拖动时不要让后台定时器偷偷调用 drawWordAnnotations；否则会污染“最近绘制”状态。
     if (state.interaction.isDragging || state.interaction.touchIsDragging ||
         state.interaction.mouseIsDragging) {
         cancelAnnotationUpdateTimer();
@@ -5218,15 +5017,12 @@ function scheduleAnnotationRedrawAfterInteraction() {
             if (state.interaction.isDragging || state.interaction.touchIsDragging ||
                 state.interaction.mouseIsDragging) return;
 
-            // updateTransform() 可能还有一个 RAF 中的 constrainTransform() 未完成。
-            // 最多等几帧，避免在边界约束调整 translateX/Y 之前取到旧矩形。
             if (state.interaction.transformPending && attempts < 6) {
                 attempts++;
                 waitForFinalTransform();
                 return;
             }
 
-            // 再等一帧，确保 style.transform / wrapper 尺寸已经进入最终布局快照。
             requestAnimationFrame(function() {
                 if (state.misc._annotationSettleSeq !== seq) return;
                 if (state.interaction.isDragging || state.interaction.touchIsDragging ||
@@ -5255,7 +5051,6 @@ function getPositionItemNormalizedWord(item) {
             enumerable: false
         });
     } catch (error) {
-        // Frozen/sealed index objects remain supported; simply skip memoization.
     }
     return normalized;
 }
@@ -5352,9 +5147,7 @@ function tryApplyExternalResultAutoFocus(page, expectedSeq) {
     var zoomFactor = parseFloat(state.config.dictConfig.doubleTapZoomFactor) || 1.85;
     if (zoomFactor <= 1.01) zoomFactor = 1.05;
 
-    state.interaction.scale = zoomFactor;
-    state.interaction.translateX = 0;
-    state.interaction.translateY = 0;
+    setTransformState(zoomFactor, 0, 0);
     setWrapperHeight(true);
     updateTransform();
     applyConfig();
@@ -5380,14 +5173,12 @@ function tryApplyExternalResultAutoFocus(page, expectedSeq) {
             var imgTop = imgRect.top - wrapperRect.top;
 
             // V7.3：外部查询也改用唯一的横向 source of truth。
-            // target.col 为 1-based；内部统一为 0-based。
             var horizontalGeometry = getEffectiveHorizontalGeometry(columns);
             var cropLeftNatural = horizontalGeometry ? horizontalGeometry.cropLeftNatural : 0;
             var cropRightNatural = horizontalGeometry ? horizontalGeometry.cropRightNatural : 0;
             var targetColZeroBased = clampHorizontalColumn(col - 1, columns);
             var horizontalDelta = getColumnHorizontalDelta(targetColZeroBased, columns);
 
-            // 纵向定位保持原算法，不受左右裁剪影响。
             var targetTop = imgTop + y * imgRect.width / 100;
 
             var desiredTop = Math.max(18, wrapperRect.height * 0.14);
@@ -5440,9 +5231,6 @@ function drawWordAnnotations(page, force) {
         return;
     }
 
-    // 先判断交互状态，再更新任何“最近绘制”标记。
-    // 旧逻辑会在拖动中先写入 _lastDrawTime 再 return，导致停止拖动后的正确重绘
-    // 被 200ms 防重复逻辑误判为重复，从而留下隐藏层或错位层。
     if (state.interaction.isDragging || state.interaction.touchIsDragging ||
         state.interaction.mouseIsDragging) {
         hideWordAnnotationsLayer();
@@ -5453,9 +5241,6 @@ function drawWordAnnotations(page, force) {
     var image = state.interaction.img;
     var entries = getPageWordAnnotationEntries(page);
 
-    // 当前页没有任何带位置坐标的词条时，必须主动删除上一页遗留的高亮层。
-    // 旧逻辑直接 return，导致从正文页跳到附录/封面等无 location 页面时，
-    // 上一页的固定高亮层仍覆盖在新页面上。
     if (!entries || entries.length === 0) {
         clearWordAnnotationsLayer();
         return;
@@ -5465,7 +5250,6 @@ function drawWordAnnotations(page, force) {
         return;
     }
 
-    // 必须先取得“当前最终几何”，再决定是否真的是重复绘制。
     var imgRect = image.getBoundingClientRect();
     var wrapperRect = wrapper.getBoundingClientRect();
     if (!imgRect.width || !imgRect.height || !wrapperRect.width || !wrapperRect.height) return;
@@ -5487,8 +5271,6 @@ function drawWordAnnotations(page, force) {
     ].join('|');
     var now = Date.now();
 
-    // 只有“页码 + 图片位置/尺寸 + wrapper尺寸 + scale”都完全相同才视作重复。
-    // 即使两次绘制间隔小于 200ms，只要 constrainTransform 改过最终位置，也必须重绘。
     if (!force && oldLayer && oldLayer.style.display !== 'none' &&
         state._lastAnnotationGeometryKey === geometryKey &&
         state._lastDrawPage === page && state._lastDrawTime &&
@@ -5555,7 +5337,6 @@ function drawWordAnnotations(page, force) {
     wrapper.appendChild(layer);
 }
 
-
 function updatePageInfo(currentPage) {
     var infoEl = state.ui.pageInfoElement || document.getElementById('picdic_pageinfo');
     if (!infoEl) return;
@@ -5576,11 +5357,8 @@ function updatePageInfo(currentPage) {
 
 // ==================== 主入口 displayPage ====================
 function displayPage(page, keepScale, direction) {
-    // Hot-lite 只持有当前需要的位置页；翻到其他页时按页异步补取。
     ensureHotPagePositionsAsync(page);
 
-    // 切换到附录、封面等没有词条 location 的页面时，立即清除上一页高亮层。
-    // 不等待新图片加载完成，避免旧高亮在无定位页面上残留。
     if (!getPageWordAnnotationEntries(page)) {
         clearWordAnnotationsLayer();
     }
@@ -5818,8 +5596,7 @@ function buildImageContainer() {
     document.addEventListener('mousemove', handleMouseMove, { signal: abortController.signal });
     document.addEventListener('mouseup', handleMouseUp, { signal: abortController.signal });
     img.addEventListener('mousedown', onImgMouseDown, { signal: abortController.signal });
-    
-    // 创建底部信息栏（仅在正常大小显示）
+
     var footer = document.createElement('div');
     footer.className = 'picdic-footer';
     footer.textContent = 'PicDic图片词典查阅';
@@ -5934,17 +5711,14 @@ function handleTouchMove(e) {
 
                 if (state.config.dictConfig.zoomVerticalDragOnly) {
                     // V7.4：按词典可选。锁定开始拖动时的横向位置，只更新纵向位置。
-                    // 横向手势仍作为拖动处理并 preventDefault，避免泄漏成页面/点击行为。
                     state.interaction.translateX = state.interaction.touchStartTranslateX;
                 } else {
-                    // 兼容跨列内容：保持原来的自由二维拖动。
                     state.interaction.translateX = state.interaction.touchStartTranslateX + dx;
                 }
 
                 state.interaction.translateY = state.interaction.touchStartTranslateY + dy;
                 updateTransform();
 
-                // 拖动过程中隐藏高亮层；停止后由 settle 调度器基于最终 transform 重绘。
                 hideWordAnnotationsLayer();
                 e.preventDefault();
             }
@@ -5971,8 +5745,6 @@ function handleTouchEnd(e) {
         state.interaction.isDragging = false;
         e.preventDefault();
 
-        // 不再 touchend 当下立即取 getBoundingClientRect()。
-        // 等 updateTransform/constrainTransform 和浏览器布局稳定后强制重绘一次。
         scheduleAnnotationRedrawAfterInteraction();
         return;
     }
@@ -6029,7 +5801,6 @@ function handleMouseMove(e) {
 	    state.interaction.translateY = state.interaction.mouseStartTranslateY + dy;
 	    updateTransform();
 
-        // 拖动过程中隐藏高亮层；停止后统一按最终几何重绘。
         hideWordAnnotationsLayer();
 	}
 }
@@ -6074,7 +5845,6 @@ async function switchDict(dictId) {
             if (!state.configStore.data.allDictConfigs[oldDictId]) {
                 state.configStore.data.allDictConfigs[oldDictId] = {};
             }
-            // 仅保存词典设置字段，保留 _order、_cachedIcon、_cachedCover、_pagesInfo 等元数据。
             for (var configKey in DEFAULT_DICT_CONFIG) {
                 state.configStore.data.allDictConfigs[oldDictId][configKey] =
                     state.config.dictConfig[configKey];
@@ -6097,7 +5867,6 @@ async function switchDict(dictId) {
         if (!state.cache._searchCacheReady || state.cache._searchCacheDictId !== dictId) {
             throw new Error('词典索引已加载，但搜索缓存未就绪');
         }
-        // 重置搜索相关状态，避免残留旧词条高亮
         resetCurrentSearchState();
         state.navigation.currentWordPages = null;
         state.navigation.currentPageKeyMap = null;
@@ -6105,7 +5874,7 @@ async function switchDict(dictId) {
 
         debugLog('🔄 切换后规范化键数: ' + (state.cache._normalizedKeys ? state.cache._normalizedKeys.length : 0));
         mergeDictConfig(dictId, null);
-        
+
         if (state.interaction.container && state.interaction.container._abortController) {
             state.interaction.container._abortController.abort();
             state.interaction.container._abortController = null;
@@ -6174,7 +5943,6 @@ async function activateEmbeddedSessionNow(dictId, words, activationSeq) {
         throw new Error('Embedded 目标 PicDic 词典不存在: ' + dictId);
     }
 
-    // 如果排队期间又点击了更新的 Controller，只执行最后一次激活。
     if (activationSeq !== _picdicEmbeddedActivationSeq) return false;
 
     var firstWord = normalizedWords[0];
@@ -6191,16 +5959,12 @@ async function activateEmbeddedSessionNow(dictId, words, activationSeq) {
     state.misc._savedWord = firstWord;
 
     if (state.ui.currentDictId !== dictId) {
-        // 不同 PicDic 词典仍沿用已稳定的 switchDict 事务。
         state.misc._externalSearchPending = true;
         await switchDict(dictId);
     } else {
-        // 同一 PicDic 词典的 hot-lite 页面只持有上一次词条。
-        // 新词先按需换入新的轻量 lookup；命中时完全不恢复大 indexData。
         if (state.cache.dictionaryIndex && state.cache.dictionaryIndex._picdicHotLite) {
             var hotPrepared = await prepareEmbeddedHotIndex(dictId, firstWord);
             if (!hotPrepared) {
-                // 少数 hot miss（例如缓存尚未完成/索引变更）安全回退完整索引。
                 await promoteHotLiteToFullIndex(dictId);
             }
             state.ui.searchInput.value = firstWord;
@@ -6222,7 +5986,6 @@ window._picdic_activateEmbeddedSession = function(dictId, words) {
 
     var activationSeq = ++_picdicEmbeddedActivationSeq;
 
-    // 串行切换，避免两个 Controller 在 switchDict/loadIndex 期间并发污染全局 state。
     _picdicEmbeddedActivationQueue = _picdicEmbeddedActivationQueue
         .catch(function() { return false; })
         .then(function() {
@@ -6238,7 +6001,6 @@ window._picdic_activateEmbeddedSession = function(dictId, words) {
 
 // ==================== 搜索 ====================
 function performSearch(e, options) {
-    // 详细的状态检查，打印到控制台以辅助排查
     if (!state || !state.ui || !state.ui.searchInput) {
         console.warn('performSearch 未就绪，state:', state, 'state.ui:', state ? state.ui : 'undefined');
         setTimeout(function() {
@@ -6254,7 +6016,6 @@ function performSearch(e, options) {
     var isExternalSearch = !!options.external || !!state.misc._externalSearchPending;
     state.misc._externalSearchPending = false;
     if (!isExternalSearch) {
-        // 手动查询优先，取消尚未执行的旧外部定位任务。
         state.misc._externalFocusSeq++;
         state.misc._pendingExternalFocus = null;
     }
@@ -6266,8 +6027,6 @@ function performSearch(e, options) {
     var inputWord = state.ui.searchInput ? state.ui.searchInput.value.trim() : '（无输入框）';
     debugLog('🔍 performSearch: "' + inputWord + '"');
 
-    // Hot-lite 手动输入了另一个词：先按词换入轻量分片。这样 Embedded 内部搜索也不会
-    // 因为 partial wordToPages 而错误地把上一词当作“最近词”。
     if (inputWord && state.cache.dictionaryIndex && state.cache.dictionaryIndex._picdicHotLite &&
         !options._hotPrepared) {
         var requestedNorm = normalize(inputWord);
@@ -6294,12 +6053,11 @@ function performSearch(e, options) {
             return;
         }
     }
-    
-    // ★ 新增：标记首次搜索已完成
+
     if (!window._picdic_initialSearchDone) {
         window._picdic_initialSearchDone = true;
     }
-    
+
     if (state.misc._searching) {
         debugLog('⚠️ 搜索正在进行，忽略重复调用');
         return;
@@ -6442,11 +6200,9 @@ function performSearch(e, options) {
             return;
         }
 
-        // -------------------- 英文/通用索引搜索 --------------------
         state.navigation.currentPageKeyMap = null;
         var normTarget = normalize(inputWord);
 
-        // O(1) 校验；只有缓存缺失/归属不符时才重建一次，不按 key 数量反复判断。
         if (!state.cache._searchCacheReady ||
             state.cache._searchCacheDictId !== state.ui.currentDictId ||
             state.cache._searchCacheIndexPath !== state.cache.dictionaryIndex._picdicIndexPath ||
@@ -6458,7 +6214,6 @@ function performSearch(e, options) {
         var matchKeys = [];
         var matchedNormalized = normTarget;
 
-        // 原始词头精确命中优先放在结果首位，但仍合并同一规范化键下的全部等价词条。
         var exactKey = hasOwnKey(wordToPages, inputWord) ? inputWord : null;
         if (exactKey) matchKeys.push(exactKey);
 
@@ -6472,7 +6227,6 @@ function performSearch(e, options) {
         }
 
         if (matchKeys.length === 0 && normKeys.length > 0) {
-            // 二分查找最接近的规范化键；映射结果仍是一组原始词头，而不是单个覆盖值。
             var low = 0, high = normKeys.length - 1, pos = normKeys.length;
             while (low <= high) {
                 var mid = Math.floor((low + high) / 2);
@@ -6524,7 +6278,6 @@ function performSearch(e, options) {
 
         if (pgs && pgs.length > 0) {
             pgs.sort(comparePageIds);
-            // 精确原始词头存在时，优先显示它的首个页面；其余等价词条页面继续保留。
             if (primaryPage !== null) {
                 var primaryIndex = pgs.indexOf(primaryPage);
                 if (primaryIndex > 0) {
@@ -6640,1496 +6393,259 @@ function buildUI() {
     updatePageInfo(null);
 }
 
-// ==================== 历史面板 ====================
-function showHistoryPanel() {
-    var existing = document.getElementById('historyPanel');
-    if (existing) { existing.remove(); return; }
-    var history = state.historyStore ? state.historyStore.getAll() : [];
-    if (!history || history.length === 0) {
-        showToast('暂无历史记录');
-        return;
-    }
-    var exportBtn = document.createElement('button');
-    exportBtn.className = 'picdic-title-action-btn to_Copy';
-    exportBtn.textContent = '📋 导出';
-    exportBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        if (!state.historyStore || state.historyStore.getAll().length === 0) {
-            showToast('历史为空');
-            return;
-        }
-        var map = {};
-        state.historyStore.getAll().forEach(function(item) {
-            var word = item.word;
-            if (!map[word] || item.timestamp > map[word].timestamp) {
-                map[word] = item;
-            }
-        });
-        var sorted = Object.values(map).sort(function(a, b) {
-            return b.timestamp - a.timestamp;
-        });
-        var lines = sorted.map(function(item) { return item.word; });
-        var text = lines.join('\n');
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(text).then(function() {
-                showToast('已复制 ' + lines.length + ' 个单词到剪贴板');
-            }).catch(function() { fallbackCopy(text); });
-        } else {
-            fallbackCopy(text);
-        }
-    });
-    var clearBtn = document.createElement('button');
-    clearBtn.className = 'picdic-title-action-btn to_ClearHistory';
-    clearBtn.textContent = '🗑️ 清空';
-    clearBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        clearHistory();
-    });
-    var popup = createPopup(
-        '📜 查询历史（' + history.length + '条）',
-        'picdic-history-panel',
-        function(content) {
-            var list = document.createElement('ul');
-            list.className = 'picdic-popup-list';
-            function deleteHistoryItem(item, liElement) {
-                if (!state.historyStore) return;
-                state.historyStore.remove(item.word, item.dictId);
-                if (liElement && liElement.parentNode) {
-                    liElement.parentNode.removeChild(liElement);
-                }
-                var titleEl = popup.panel.querySelector('.picdic-popup-title');
-                if (titleEl) {
-                    var count = state.historyStore.getAll().length;
-                    titleEl.textContent = '📜 查询历史（' + count + '条）';
-                }
-                if (state.historyStore.getAll().length === 0) {
-                    popup.close();
-                    showToast('历史已清空');
-                }
-            }
-            history.forEach(function(item) {
-                var li = document.createElement('li');
-                li.className = 'picdic-history-item';
-                li.setAttribute('data-dictid', item.dictId || '');
-                li.setAttribute('data-word', item.word);
-                
-                var jumpIcon = document.createElement('span');
-                jumpIcon.className = 'picdic-lookup-in-GD-img';
-                jumpIcon.textContent = '📖';
-                jumpIcon.title = '在 GoldenDict 中查询此词';
-			jumpIcon.addEventListener('click', function(e) {
-			    e.stopPropagation();
-			    var word = item.word;
-			    if (!word) return;
-			    var dictId = item.dictId;
-			    var encodedWord = encodeURIComponent(word);
-			    var url;
+// ==================== 按需 UI 模块 ====================
+// 历史 / 词典管理 / Resource ID / 设置面板不参与普通查词路径。
+// 第一次点击对应工具栏按钮时才加载 PicDic_ui.js，之后复用同一实例。
+var _picdicUiLoadPromise = null;
 
-			    // 根据环境构造不同的 URL
-			    if (_env.isMDictAndroid) {
-			        // MDict 使用 entry:// 协议，直接跳转词条
-			        url = 'mdx://mdict.cn/entry/-1/' + encodedWord;
-			    } else {
-			        // GoldenDict 使用 content:// 协议
-			        var sourceLang = getSourceLangCode(dictId);
-			        var targetLang = -1;
-			        url = 'content://mobi.goldendict.android/article/' + sourceLang + '/' + targetLang + '/' + encodedWord;
-			    }
-
-			    try {
-			        window.location.href = url;
-			    } catch (ex) {
-			        // 部分环境可能不允许直接跳转，用 open 作为后备
-			        window.open(url, '_self');
-			    }
-			});
-                li.appendChild(jumpIcon);
-                
-                var wordSpan = document.createElement('span');
-                wordSpan.className = 'picdic-history-word';
-                wordSpan.textContent = item.word;
-                li.appendChild(wordSpan);
-                var rightContainer = document.createElement('div');
-                rightContainer.className = 'picdic-history-right';
-                var leftCol = document.createElement('div');
-                leftCol.style.display = 'flex';
-                leftCol.style.flexDirection = 'column';
-                leftCol.style.alignItems = 'flex-end';
-                leftCol.style.gap = '2px';
-                var dictSpan = document.createElement('span');
-                dictSpan.className = 'picdic-history-dict';
-                var dictName = item.dictId || '未知词典';
-                if (window.picdic_dictList && window.picdic_dictList[item.dictId]) {
-                    dictName = window.picdic_dictList[item.dictId].name || dictName;
-                }
-                dictSpan.textContent = dictName;
-                leftCol.appendChild(dictSpan);
-                var timeSpan = document.createElement('span');
-                timeSpan.className = 'picdic-history-time';
-                var date = new Date(item.timestamp);
-                var dateStr = date.toLocaleString(undefined, {
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                });
-                timeSpan.textContent = dateStr;
-                leftCol.appendChild(timeSpan);
-                rightContainer.appendChild(leftCol);
-                var deleteBtn = document.createElement('span');
-                deleteBtn.className = 'picdic-history-delete-btn';
-                deleteBtn.textContent = '✕';
-                deleteBtn.title = '删除此记录';
-                deleteBtn.style.marginLeft = '4px';
-                deleteBtn.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    showConfirm('确认删除', '确定删除 "' + item.word + '" 的历史记录吗？', function() {
-                        deleteHistoryItem(item, li);
-                    });
-                });
-                rightContainer.appendChild(deleteBtn);
-                li.appendChild(rightContainer);
-                li.addEventListener('click', async function(e) {
-                    if (e.target === jumpIcon || jumpIcon.contains(e.target) ||
-                        e.target === deleteBtn || deleteBtn.contains(e.target)) {
-                        return;
-                    }
-                    var targetDictId = this.getAttribute('data-dictid');
-                    var targetWord = this.getAttribute('data-word');
-                    if (!targetDictId || !targetWord) return;
-                    try {
-                        if (targetDictId && targetDictId !== state.ui.currentDictId) {
-                            await switchDict(targetDictId);
-                        }
-                        if (state.ui.searchInput) {
-                            state.ui.searchInput.value = targetWord;
-                            performSearch();
-                            popup.close();
-                        }
-                    } catch (err) {
-                        showToast('切换词典失败：' + (err.message || '未知错误'));
-                    }
-                });
-                list.appendChild(li);
-            });
-            content.appendChild(list);
-            content.addEventListener('touchmove', function(e) {
-                if (this.scrollHeight > this.clientHeight) {
-                    e.stopPropagation();
-                } else {
-                    e.preventDefault();
-                    e.stopPropagation();
-                }
-            }, { passive: false });
-        },
-        [exportBtn, clearBtn]
-    );
-    state.historyPopup = popup;
+function buildPicDicUiBridge() {
+    return {
+        state: state,
+        env: _env,
+        UrlBuilder: UrlBuilder,
+        DEFAULT_PAGE_TYPES: DEFAULT_PAGE_TYPES,
+        DEFAULT_GLOBAL_CONFIG: DEFAULT_GLOBAL_CONFIG,
+        DEFAULT_DICT_CONFIG: DEFAULT_DICT_CONFIG,
+        FILTER_PRESETS: FILTER_PRESETS,
+        LIGHT_BG_PRESETS: LIGHT_BG_PRESETS,
+        DARK_BG_PRESETS: DARK_BG_PRESETS,
+        core: {
+            clearHistory: clearHistory,
+            clearIndexCache: clearIndexCache,
+            clearManualResourceId: clearManualResourceId,
+            createPopup: createPopup,
+            dbClear: dbClear,
+            debugLog: debugLog,
+            discoverResource: discoverResource,
+            displayPage: displayPage,
+            fallbackCopy: fallbackCopy,
+            getDefaultPage: getDefaultPage,
+            getResourceContext: getResourceContext,
+            getResourceIdInfo: getResourceIdInfo,
+            getSourceLangCode: getSourceLangCode,
+            isAppInDarkMode: isAppInDarkMode,
+            isCurrentMDictPicDicMainEntry: isCurrentMDictPicDicMainEntry,
+            loadDictConfigJS: loadDictConfigJS,
+            loadGlobalConfigJS: loadGlobalConfigJS,
+            loadIndexAndConfig: loadIndexAndConfig,
+            matchDarkBgPreset: matchDarkBgPreset,
+            matchFilterPreset: matchFilterPreset,
+            matchLightBgPreset: matchLightBgPreset,
+            normalizeResourceId: normalizeResourceId,
+            performSearch: performSearch,
+            replaceDictSettings: replaceDictSettings,
+            sanitizeCSSValue: sanitizeCSSValue,
+            setManualResourceId: setManualResourceId,
+            showConfirm: showConfirm,
+            showToast: showToast,
+            switchDict: switchDict,
+            switchDictFromList: switchDictFromList,
+            updateResourceIds: updateResourceIds,
+            validateIndexOrder: validateIndexOrder
+        }
+    };
 }
 
-// ==================== 词典列表 ====================
-function showDictListMenu() {
-    var dictList = window.picdic_dictList;
-    if (!dictList || typeof dictList !== 'object' || Object.keys(dictList).length === 0) {
-        showToast('无可用的词典列表');
-        return;
+function instantiatePicDicUi() {
+    if (window._picdicUI) {
+        return window._picdicUI;
     }
-    var refreshCacheBtn = document.createElement('button');
-    refreshCacheBtn.className = 'picdic-title-action-btn to_ClearIndexCache';
-    refreshCacheBtn.textContent = '🔄刷新缓存';
-    refreshCacheBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        showConfirm('确认刷新缓存', '清除所有索引缓存并重新加载当前词典？', async function() {
-            clearIndexCache();
-            if (state.ui.currentDictId) {
-                try {
-                    await loadIndexAndConfig(state.ui.currentDictId);
-                    showToast('缓存已刷新，当前词典索引已重新加载。');
-                    if (state.ui.pageNum) {
-                        displayPage(state.ui.pageNum);
-                    } else {
-                        var pages = state.cache.dictionaryIndex.pages;
-                        var first = pages[0];
-                        displayPage(first);
-                    }
-                } catch (err) {
-                    showToast('缓存刷新失败: ' + err.message);
-                }
+
+    if (typeof window._picdicCreateUI !== 'function') {
+        return null;
+    }
+
+    window._picdicUIBridge = buildPicDicUiBridge();
+
+    var ui = window._picdicCreateUI(window._picdicUIBridge);
+    if (!ui) {
+        throw new Error('PicDic UI factory returned empty result');
+    }
+
+    window._picdicUI = ui;
+    return ui;
+}
+
+function getPicDicUiCandidateUrls() {
+    var urls = [];
+
+    function add(url) {
+        if (!url) return;
+        url = String(url);
+        if (urls.indexOf(url) === -1) urls.push(url);
+    }
+
+    add(window._picdic_ui_path);
+
+    // 从已成功加载的 search.js 推导同目录，主要给 MDict / 非 Controller 环境使用。
+    try {
+        var scripts = document.getElementsByTagName('script');
+        for (var i = scripts.length - 1; i >= 0; i--) {
+            var src = scripts[i].src || scripts[i].getAttribute('src') || '';
+            if (!src) continue;
+            var clean = src.split('#')[0].split('?')[0];
+            if (/\/PicDic_search\.js$/i.test(clean)) {
+                add(clean.replace(/PicDic_search\.js$/i, 'PicDic_ui.js'));
+                break;
             }
-            refreshCacheBtn.textContent = '✅';
-            setTimeout(function() { refreshCacheBtn.textContent = '🔄 刷新缓存'; }, 2000);
-        });
-    });
-    var resourceMapBtn = document.createElement('button');
-    resourceMapBtn.className = 'picdic-title-action-btn to_Copy';
-    resourceMapBtn.textContent = '🧭 ID映射';
-    resourceMapBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        showResourceIdMapPanel();
-    });
-    var validateBtn = document.createElement('button');
-    validateBtn.className = 'picdic-title-action-btn to_Default';
-    validateBtn.textContent = '🔍 验证排序';
-    validateBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        if (!state.ui.currentDictId) {
-            showToast('当前无词典');
-            return;
         }
-        var result = validateIndexOrder(state.ui.currentDictId);
-        if (result.sorted) {
-            showToast('✅ 索引排序正常！');
-        } else {
-            showToast('⚠️ 发现 ' + result.errors.length + ' 处排序错误，详情请查看页面顶部的黄色警告条或调试面板。');
-        }
-    });
-    var popup = createPopup(
-        '📚 词典',
-        'picdic-dict-panel',
-        function(content) {
-            var dictList = window.picdic_dictList;
-            if (!dictList || Object.keys(dictList).length === 0) {
-                var msg = document.createElement('p');
-                msg.textContent = '无词典可用';
-                content.appendChild(msg);
+    } catch (e) {}
+
+    if (_env.isGoldenDictAndroid) {
+        add('file:///sdcard/GoldenDict/PicDic/PicDic_ui.js');
+        add('file:///storage/emulated/0/GoldenDict/PicDic/PicDic_ui.js');
+    } else {
+        add(UrlBuilder.getFileUrl('PicDic_ui.js'));
+    }
+
+    add('PicDic_ui.js');
+    if (_env.isMDictAndroid) add('/PicDic_ui.js');
+
+    return urls;
+}
+
+function loadPicDicUiDirect() {
+    return new Promise(function(resolve, reject) {
+        var urls = getPicDicUiCandidateUrls();
+        var attempt = 0;
+        var failures = [];
+
+        function tryNext() {
+            var existing = instantiatePicDicUi();
+            if (existing) {
+                resolve(existing);
                 return;
             }
-            var groups = {};
-            Object.keys(dictList).forEach(function(id) {
-                var dict = dictList[id];
-                var pair = (dict.index_language || 'eng') + '-' + (dict.contents_language || 'eng');
-                if (!groups[pair]) groups[pair] = [];
-                groups[pair].push({ id: id, dict: dict });
-            });
-            var groupNames = Object.keys(groups);
-            var savedOrder = state.config.globalConfig.dictGroupOrder;
-            if (savedOrder && Array.isArray(savedOrder)) {
-                var orderedGroups = [];
-                var remaining = groupNames.slice();
-                savedOrder.forEach(function(name) {
-                    if (groups[name]) {
-                        orderedGroups.push(name);
-                        var idx = remaining.indexOf(name);
-                        if (idx !== -1) remaining.splice(idx, 1);
-                    }
-                });
-                orderedGroups = orderedGroups.concat(remaining);
-                groupNames = orderedGroups;
-            } else {
-                groupNames.sort();
+
+            if (attempt >= urls.length) {
+                var msg = 'PicDic_ui.js 加载失败（已尝试 ' + urls.length + ' 个路径）';
+                window._picdic_ui_last_error = {
+                    message: msg,
+                    attempts: failures.slice()
+                };
+                reject(new Error(msg));
+                return;
             }
-            Object.keys(groups).forEach(function(pair) {
-                var items = groups[pair];
-                items.sort(function(a, b) {
-                    return a.dict.name.localeCompare(b.dict.name);
-                });
-                items.forEach(function(item, idx) {
-                    if (!state.configStore.data.allDictConfigs[item.id]) {
-                        state.configStore.data.allDictConfigs[item.id] = {};
-                    }
-                    if (typeof state.configStore.data.allDictConfigs[item.id]._order === 'undefined') {
-                        state.configStore.data.allDictConfigs[item.id]._order = idx;
-                    }
-                });
-                items.sort(function(a, b) {
-                    return state.configStore.data.allDictConfigs[a.id]._order -
-                           state.configStore.data.allDictConfigs[b.id]._order;
-                });
-            });
-            var list = document.createElement('ul');
-            list.className = 'picdic-popup-list';
-            var currentId = state.ui.currentDictId;
-            var defaultId = state.config.globalConfig.defaultDictId;
-            function moveDict(dictId, direction) {
-                var foundGroup = null;
-                var foundIndex = -1;
-                for (var pair in groups) {
-                    var items = groups[pair];
-                    for (var i = 0; i < items.length; i++) {
-                        if (items[i].id === dictId) {
-                            foundGroup = pair;
-                            foundIndex = i;
-                            break;
-                        }
-                    }
-                    if (foundGroup) break;
-                }
-                if (foundGroup === null || foundIndex === -1) return;
-                var items = groups[foundGroup];
-                var newIndex = foundIndex + direction;
-                if (newIndex < 0 || newIndex >= items.length) return;
-                var temp = items[foundIndex];
-                items[foundIndex] = items[newIndex];
-                items[newIndex] = temp;
-                items.forEach(function(item, idx) {
-                    if (!state.configStore.data.allDictConfigs[item.id]) {
-                        state.configStore.data.allDictConfigs[item.id] = {};
-                    }
-                    state.configStore.data.allDictConfigs[item.id]._order = idx;
-                });
-                state.configManager.notifyChange();
-                popup.close();
-                showDictListMenu();
-            }
-            groupNames.forEach(function(pair, groupIndex) {
-                var items = groups[pair];
-                var groupContainer = document.createElement('li');
-                groupContainer.className = 'picdic-dict-group-container';
-                var titleRow = document.createElement('div');
-                titleRow.className = 'picdic-dict-group-title';
-                var titleText = document.createElement('span');
-                titleText.textContent = pair;
-                titleRow.appendChild(titleText);
-                var btnGroup = document.createElement('div');
-                btnGroup.className = 'picdic-group-order-btns';
-                if (groupIndex > 0) {
-                    var upGroupBtn = document.createElement('button');
-                    upGroupBtn.className = 'picdic-group-order-btn';
-                    upGroupBtn.textContent = '▲';
-                    upGroupBtn.title = '分组上移';
-                    upGroupBtn.addEventListener('click', function(e) {
-                        e.stopPropagation();
-                        var temp = groupNames[groupIndex];
-                        groupNames[groupIndex] = groupNames[groupIndex - 1];
-                        groupNames[groupIndex - 1] = temp;
-                        state.config.globalConfig.dictGroupOrder = groupNames;
-                        state.configManager.notifyChange();
-                        popup.close();
-                        showDictListMenu();
-                    });
-                    btnGroup.appendChild(upGroupBtn);
-                }
-                if (groupIndex < groupNames.length - 1) {
-                    var downGroupBtn = document.createElement('button');
-                    downGroupBtn.className = 'picdic-group-order-btn';
-                    downGroupBtn.textContent = '▼';
-                    downGroupBtn.title = '分组下移';
-                    downGroupBtn.addEventListener('click', function(e) {
-                        e.stopPropagation();
-                        var temp = groupNames[groupIndex];
-                        groupNames[groupIndex] = groupNames[groupIndex + 1];
-                        groupNames[groupIndex + 1] = temp;
-                        state.config.globalConfig.dictGroupOrder = groupNames;
-                        state.configManager.notifyChange();
-                        popup.close();
-                        showDictListMenu();
-                    });
-                    btnGroup.appendChild(downGroupBtn);
-                }
-                titleRow.appendChild(btnGroup);
-                groupContainer.appendChild(titleRow);
-                var subList = document.createElement('ul');
-                subList.className = 'picdic-dict-sublist';
-                items.forEach(function(item, index) {
-                    var dictId = item.id;
-                    var dict = item.dict;
-                    var li = document.createElement('li');
-                    li.className = 'picdic-dict-item';
-                    if (dictId === currentId) li.classList.add('current');
-                    var defaultStar = document.createElement('span');
-                    defaultStar.className = 'picdic-dict-default-star';
-                    if (defaultId === dictId) {
-                        defaultStar.classList.add('is-default');
-                    }
-                    defaultStar.textContent = (defaultId === dictId) ? '★' : '☆';
-                    defaultStar.title = (defaultId === dictId) ? '当前默认词典' : '设为默认';
-                    defaultStar.addEventListener('click', function(e) {
-                        e.stopPropagation();
-                        state.config.globalConfig.defaultDictId = dictId;
-                        state.configManager.notifyChange();
-                        popup.close();
-                        showDictListMenu();
-                    });
-                    li.appendChild(defaultStar);
-                    var iconSpan = document.createElement('span');
-                    iconSpan.className = 'picdic-dict-icon';
-                    var cachedIcon = state.configStore.data.allDictConfigs[dictId] &&
-                                     state.configStore.data.allDictConfigs[dictId]._cachedIcon;
-                    if (cachedIcon) {
-                        var img = document.createElement('img');
-                        img.className = 'picdic-dict-icon-img';
-                        img.src = UrlBuilder.getFileUrl(cachedIcon);
-                        img.alt = '';
-                        img.onerror = function() {
-                            this.parentNode.textContent = '📚';
-                        };
-                        iconSpan.appendChild(img);
-                    } else {
-                        iconSpan.textContent = '📚';
-                        (function(span, dId) {
-                            discoverResource(dId, 'icon', function(iconPath) {
-                                if (iconPath) {
-                                    span.innerHTML = '';
-                                    var newImg = document.createElement('img');
-                                    newImg.className = 'picdic-dict-icon-img';
-                                    newImg.src = UrlBuilder.getFileUrl(iconPath);
-                                    newImg.alt = '';
-                                    newImg.onerror = function() {
-                                        this.parentNode.textContent = '📚';
-                                    };
-                                    span.appendChild(newImg);
-                                }
-                            });
-                        })(iconSpan, dictId);
-                    }
-                    iconSpan.style.cursor = 'pointer';
-                    iconSpan.addEventListener('click', function(e) {
-                        e.stopPropagation();
-                        showDictDetailPanel(dictId);
-                    });
-                    li.appendChild(iconSpan);
-                    var nameSpan = document.createElement('span');
-                    nameSpan.className = 'picdic-dict-name';
-                    nameSpan.textContent = dict.name;
-                    if (_env.isMDictAndroid) {
-                        var needsPicDicMainEntryJump = !isCurrentMDictPicDicMainEntry();
-                        nameSpan.setAttribute('role', 'link');
-                        nameSpan.setAttribute('tabindex', '0');
-                        nameSpan.style.cursor = 'pointer';
-                        if (needsPicDicMainEntryJump) {
-                            nameSpan.classList.add('picdic-dict-name-jump');
-                            nameSpan.title = '先跳转到 MDict 的 picdic 主词条，再打开此词典并查询当前输入词';
-                            nameSpan.style.textDecoration = 'underline';
-                            nameSpan.style.textUnderlineOffset = '2px';
-                        } else {
-                            nameSpan.title = '当前已在 picdic 主词条中，直接切换到此词典并查询当前输入词';
-                        }
-                        nameSpan.addEventListener('click', function(e) {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            switchDictFromList(dictId, popup);
-                        });
-                        nameSpan.addEventListener('keydown', function(e) {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                switchDictFromList(dictId, popup);
-                            }
-                        });
-                    }
-                    li.appendChild(nameSpan);
-                    var orderBtns = document.createElement('span');
-                    orderBtns.className = 'picdic-dict-order-btns';
-                    var upBtn = document.createElement('button');
-                    upBtn.className = 'picdic-dict-order-btn';
-                    upBtn.textContent = '▲';
-                    upBtn.title = (index > 0) ? '上移' : '已在顶部';
-                    upBtn.disabled = (index === 0);
-                    upBtn.addEventListener('click', function(e) {
-                        if (index === 0) return;
-                        e.stopPropagation();
-                        moveDict(dictId, -1);
-                    });
-                    orderBtns.appendChild(upBtn);
-                    var downBtn = document.createElement('button');
-                    downBtn.className = 'picdic-dict-order-btn';
-                    downBtn.textContent = '▼';
-                    downBtn.title = (index < items.length - 1) ? '下移' : '已在底部';
-                    downBtn.disabled = (index === items.length - 1);
-                    downBtn.addEventListener('click', function(e) {
-                        if (index === items.length - 1) return;
-                        e.stopPropagation();
-                        moveDict(dictId, 1);
-                    });
-                    orderBtns.appendChild(downBtn);
-                    li.appendChild(orderBtns);
-                    li.addEventListener('click', function(e) {
-                        if (e.target.tagName === 'BUTTON' ||
-                            (e.target.tagName === 'SPAN' && (e.target.textContent === '★' || e.target.textContent === '☆'))) {
-                            return;
-                        }
-                        // 词典名称自身已 stopPropagation；点击列表其余区域也走同一条件切换逻辑，
-                        // 防止在非 picdic 主词条下绕过必要的 APP 主词条跳转。
-                        switchDictFromList(dictId, popup);
-                    });
-                    subList.appendChild(li);
-                });
-                groupContainer.appendChild(subList);
-                list.appendChild(groupContainer);
-            });
-            content.appendChild(list);
-        },
-        [refreshCacheBtn, resourceMapBtn, validateBtn]
-    );
-}
 
-function showResourceIdMapPanel() {
-    var dictList = window.picdic_dictList || {};
-    var detectBtn = document.createElement('button');
-    detectBtn.className = 'picdic-title-action-btn to_Apply';
-    detectBtn.textContent = '重新检测';
-    detectBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        updateResourceIds();
-        if (state._resourceIdPopup) state._resourceIdPopup.close();
-        showResourceIdMapPanel();
-        showToast('Resource ID 已重新检测');
-    });
-    var popup = createPopup(
-        '🧭 Resource ID 映射',
-        'picdic-resource-id-panel',
-        function(content) {
-            var context = getResourceContext();
-            var tip = document.createElement('div');
-            tip.className = 'picdic-resource-id-content';
-            tip.textContent = '当前环境：' + context.label + '。手动值优先于自动检测；MDict 映射按当前分组分别保存。';
-            content.appendChild(tip);
+            var url = urls[attempt++];
+            var script = document.createElement('script');
+            script.src = url;
+            script.setAttribute('data-picdic-ui-attempt', String(attempt));
 
-            Object.keys(dictList).forEach(function(dictId) {
-                var info = getResourceIdInfo(dictId);
-                var row = document.createElement('div');
-                row.className = 'picdic-resource-id-row';
+            debugLog('📦 UI fallback [' + attempt + '/' + urls.length + ']: ' + url);
 
-                var name = document.createElement('div');
-                name.style.cssText = 'word-break:break-all;';
-                name.textContent = (dictList[dictId].name || dictId) + '\n' + dictId;
-                name.title = dictId;
-                row.appendChild(name);
-
-                var input = document.createElement('input');
-                input.type = 'text';
-                input.value = info.manual || info.value || '';
-                input.placeholder = info.auto || info.configured || '自动检测';
-                input.style.cssText = 'min-width:0;width:100%;box-sizing:border-box;';
-                input.title = '来源：' + info.source + (info.auto ? '；自动值：' + info.auto : '');
-                row.appendChild(input);
-
-                var save = document.createElement('button');
-                save.textContent = '保存';
-                save.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    var value = normalizeResourceId(input.value);
-                    if (!value) {
-                        showToast('请输入有效的 Resource ID');
+            script.onload = function() {
+                try {
+                    var loadedUi = instantiatePicDicUi();
+                    if (loadedUi) {
+                        window._picdic_ui_loaded_from = url;
+                        resolve(loadedUi);
                         return;
                     }
-                    setManualResourceId(dictId, value);
-                    input.value = value;
-                    showToast('已保存：' + dictId + ' → ' + value);
-                });
-                row.appendChild(save);
-
-                var clear = document.createElement('button');
-                clear.textContent = '自动';
-                clear.title = '清除手动值，恢复自动检测或初始配置';
-                clear.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    clearManualResourceId(dictId);
-                    var refreshed = getResourceIdInfo(dictId);
-                    input.value = '';
-                    input.placeholder = refreshed.auto || refreshed.configured || '自动检测';
-                    showToast('已恢复自动映射：' + dictId);
-                });
-                row.appendChild(clear);
-
-                var meta = document.createElement('div');
-                meta.style.cssText = 'grid-column:1/-1;font-size:10px;opacity:.7;word-break:break-all;';
-                meta.textContent = '有效值：' + (info.value || '无') + '；来源：' + info.source + (info.auto ? '；自动检测值：' + info.auto : '');
-                row.appendChild(meta);
-                content.appendChild(row);
-            });
-        },
-        [detectBtn]
-    );
-    state._resourceIdPopup = popup;
-}
-
-// ==================== 词典详情面板 ====================
-function showDictDetailPanel(dictId) {
-    var dict = window.picdic_dictList[dictId];
-    if (!dict) return;
-    var popup = createPopup('📖 词典详情', '', function(content) {
-        var iconContainer = document.createElement('div');
-        iconContainer.style.textAlign = 'center';
-        iconContainer.style.marginBottom = '8px';
-        var cachedIcon = state.configStore.data.allDictConfigs[dictId] &&
-                         state.configStore.data.allDictConfigs[dictId]._cachedIcon;
-        if (cachedIcon) {
-            var img = document.createElement('img');
-            img.src = UrlBuilder.getFileUrl(cachedIcon);
-            img.style.maxWidth = '60%';
-            img.style.height = 'auto';
-            img.style.maxHeight = '100px';
-            img.alt = '';
-            img.onerror = function() {
-                this.parentNode.innerHTML = '📚';
+                    failures.push({url:url, reason:'loaded_without_factory'});
+                } catch (e) {
+                    failures.push({
+                        url:url,
+                        reason:'factory_error',
+                        message:e && e.message ? e.message : String(e)
+                    });
+                }
+                tryNext();
             };
-            iconContainer.appendChild(img);
-        } else {
-            iconContainer.innerHTML = '<span style="font-size:48px;">📚</span>';
+
+            script.onerror = function() {
+                failures.push({url:url, reason:'script_error'});
+                tryNext();
+            };
+
+            (document.head || document.documentElement).appendChild(script);
         }
-        content.appendChild(iconContainer);
-        var fields = [
-            { label: '名称', value: dict.name },
-            { label: '索引语言', value: dict.index_language },
-            { label: '内容语言', value: dict.contents_language },
-            { label: '版本', value: dict.version },
-            { label: '索引路径', value: dict.indexPath },
-            { label: '当前 Resource ID', value: getResourceIdInfo(dictId).value || '未设置' },
-            { label: 'Resource ID 来源', value: getResourceIdInfo(dictId).source },
-            { label: '映射环境', value: getResourceIdInfo(dictId).context.label }
-        ];
-        fields.forEach(function(f) {
-            if (f.value) {
-                var row = document.createElement('div');
-                row.style.padding = '4px 0';
-                row.style.wordBreak = 'break-all';
-                row.innerHTML = '<strong>' + f.label + '：</strong>' + f.value;
-                content.appendChild(row);
+
+        tryNext();
+    });
+}
+
+function loadPicDicUiViaController() {
+    try {
+        var runtime = window._picdicEmbeddedRuntime;
+        var controller = runtime && runtime.activeController;
+        if (!controller || typeof controller.loadUiModule !== 'function') {
+            return null;
+        }
+
+        return controller.loadUiModule().then(function() {
+            var ui = instantiatePicDicUi();
+            if (!ui) {
+                throw new Error('Controller 已加载 UI 文件，但 UI factory 不存在');
             }
+            window._picdic_ui_loaded_from = 'controller:' +
+                String((controller.config && controller.config.picDicBase) || '');
+            return ui;
         });
-    });
+    } catch (e) {
+        return Promise.reject(e);
+    }
 }
 
-// ==================== 配置菜单 ====================
-var configMenuVisible = false;
-
-function buildConfigPanel() {
-    if (state.config._configPanelBuilt) return;
-    var actions = [];
-    var applyBtn = document.createElement('button');
-    applyBtn.className = 'picdic-title-action-btn to_Apply';
-    applyBtn.textContent = '应用';
-    applyBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        collectAndApplyConfig();
-        applyBtn.textContent = '✅';
-        setTimeout(function() { applyBtn.textContent = '应用'; }, 1500);
-    });
-    actions.push(applyBtn);
-    var copyBtn = document.createElement('button');
-    copyBtn.className = 'picdic-title-action-btn to_Copy';
-    copyBtn.textContent = '复制';
-    copyBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        var iniContent = '[PicDic Global]\n';
-        for (var key in state.config.globalConfig) {
-            iniContent += key + ' = ' + state.config.globalConfig[key] + '\n';
-        }
-        iniContent += '\n[Dict: ' + state.ui.currentDictId + ']\n';
-        for (var key in state.config.dictConfig) {
-            iniContent += key + ' = ' + state.config.dictConfig[key] + '\n';
-        }
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(iniContent).then(function() {
-                copyBtn.textContent = '✅';
-                setTimeout(function() { copyBtn.textContent = '复制'; }, 1500);
-            }).catch(function() { fallbackCopy(iniContent); });
-        } else {
-            fallbackCopy(iniContent);
-        }
-    });
-    actions.push(copyBtn);
-    var clearCacheBtn = document.createElement('button');
-    clearCacheBtn.className = 'picdic-title-action-btn to_ClearIndexCache';
-    clearCacheBtn.textContent = '清理缓存';
-    clearCacheBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        showClearCachePanel();
-    });
-    actions.push(clearCacheBtn);
-    var popup = createPopup(
-        '⚙️ 设置列表',
-        'picdic-config-panel',
-        function(content) {
-            var form = document.createElement('div');
-            form.className = 'picdic-config-form';
-            function createControl(labelText, control) {
-                var row = document.createElement('div');
-                row.className = 'picdic-config-row';
-                var label = document.createElement('label');
-                label.className = 'picdic-config-label';
-                label.textContent = labelText + ':';
-                row.appendChild(label);
-                var wrapper = document.createElement('div');
-                wrapper.className = 'picdic-config-control';
-                wrapper.appendChild(control);
-                row.appendChild(wrapper);
-                return row;
-            }
-            var controls = {};
-            // 词典配置
-            var dictSection = document.createElement('div');
-            dictSection.className = 'config-section';
-            var dictTitleRow = document.createElement('div');
-            dictTitleRow.className = 'section-title-row';
-            var dictTitle = document.createElement('span');
-            dictTitle.textContent = '📖 当前词典设置';
-            dictTitleRow.appendChild(dictTitle);
-		var dictResetBtn = document.createElement('button');
-		dictResetBtn.className = 'picdic-title-action-btn to_Default';
-		dictResetBtn.textContent = '恢复';
-		dictResetBtn.addEventListener('click', function(e) {
-		    e.stopPropagation();
-		    var dictId = state.ui.currentDictId;
-		    if (!dictId) {
-		        showToast('当前无词典');
-		        return;
-		    }
-		    var dict = window.picdic_dictList && window.picdic_dictList[dictId];
-		    if (!dict) {
-		        showToast('词典信息未加载');
-		        return;
-		    }
-		    var configPath = dict.indexPath.replace('_index.js', '_config.ini');
-
-		    // 二次确认
-		    showConfirm(
-		        '确认恢复',
-		        '确定要恢复当前词典的默认设置吗？此操作将覆盖您之前的所有自定义设置。',
-		        function() {  // 确认回调
-		            loadDictConfigJS(configPath, dictId).then(function(configData) {
-		                if (configData) {
-                            replaceDictSettings(dictId, configData);
-		                    showToast('已从外部配置恢复当前词典设置');
-		                } else {
-		                    showConfirm('未找到外部配置', '未找到外部配置文件，将使用内置默认值。确认？', function() {
-                            replaceDictSettings(dictId, null);
-		                        showToast('已恢复内置默认设置');
-		                    });
-		                }
-		            }).catch(function() {
-		                showConfirm('加载失败', '加载外部配置失败，将使用内置默认值。确认？', function() {
-                            replaceDictSettings(dictId, null);
-		                    showToast('已恢复内置默认设置');
-		                });
-		            });
-		        },
-		        function() {  // 取消回调（可选）
-		            debugLog('恢复操作已取消');
-		        }
-		    );
-		});
-            dictTitleRow.appendChild(dictResetBtn);
-            dictSection.appendChild(dictTitleRow);
-            var dictGrid = document.createElement('div');
-            dictGrid.className = 'config-grid';
-
-            // V7.6：当前词典设置固定为 3 列 × 3 排。
-            // 第一排：目录导航 / 放大倍数 / 仅纵向滑动
-            // 第二排：左边裁剪 / 右边裁剪 / 双侧安全边距
-            // 第三排：高亮比例：高度 / 单字宽度 / 宽度最大
-            dictGrid.style.display = 'grid';
-            dictGrid.style.gridTemplateColumns = 'repeat(3, minmax(0, 1fr))';
-            dictGrid.style.columnGap = '10px';
-            dictGrid.style.rowGap = '8px';
-
-            // ===== 第一排 =====
-            controls.chkTopNav = document.createElement('input');
-            controls.chkTopNav.type = 'checkbox';
-            controls.chkTopNav.checked = state.config.dictConfig.showTopNav;
-            dictGrid.appendChild(createControl('目录导航', controls.chkTopNav));
-
-            controls.inpZoom = document.createElement('input');
-            controls.inpZoom.type = 'number';
-            controls.inpZoom.step = '0.25';
-            controls.inpZoom.min = '1.05';
-            controls.inpZoom.max = '4';
-            controls.inpZoom.value = state.config.dictConfig.doubleTapZoomFactor;
-            dictGrid.appendChild(createControl('放大倍数', controls.inpZoom));
-
-            controls.chkZoomVerticalDragOnly = document.createElement('input');
-            controls.chkZoomVerticalDragOnly.type = 'checkbox';
-            controls.chkZoomVerticalDragOnly.checked =
-                state.config.dictConfig.zoomVerticalDragOnly !== false;
-            dictGrid.appendChild(
-                createControl('仅纵向滑动', controls.chkZoomVerticalDragOnly)
-            );
-
-            // ===== 第二排 =====
-            // 左/右裁剪单位：原始图片像素。
-            controls.inpExternalCropLeft = document.createElement('input');
-            controls.inpExternalCropLeft.type = 'number';
-            controls.inpExternalCropLeft.step = '1';
-            controls.inpExternalCropLeft.min = '0';
-            controls.inpExternalCropLeft.value =
-                Math.max(0, parseFloat(state.config.dictConfig.externalCropLeft) || 0);
-            controls.inpExternalCropLeft.title = '单位：原始图片像素';
-            dictGrid.appendChild(createControl('左边裁剪', controls.inpExternalCropLeft));
-
-            controls.inpExternalCropRight = document.createElement('input');
-            controls.inpExternalCropRight.type = 'number';
-            controls.inpExternalCropRight.step = '1';
-            controls.inpExternalCropRight.min = '0';
-            controls.inpExternalCropRight.value =
-                Math.max(0, parseFloat(state.config.dictConfig.externalCropRight) || 0);
-            controls.inpExternalCropRight.title = '单位：原始图片像素';
-            dictGrid.appendChild(createControl('右边裁剪', controls.inpExternalCropRight));
-
-            // 双侧安全边距单位：当前 viewport 宽度百分比。
-            controls.inpHorizontalMarginPercent = document.createElement('input');
-            controls.inpHorizontalMarginPercent.type = 'number';
-            controls.inpHorizontalMarginPercent.step = '0.1';
-            controls.inpHorizontalMarginPercent.min = '0';
-            controls.inpHorizontalMarginPercent.max = '25';
-            controls.inpHorizontalMarginPercent.value =
-                Math.max(0, parseFloat(state.config.dictConfig.horizontalMarginPercent) || 0);
-            controls.inpHorizontalMarginPercent.title = '单位：当前视口宽度的百分比';
-            dictGrid.appendChild(
-                createControl('安全边距', controls.inpHorizontalMarginPercent)
-            );
-
-            // ===== 第三排：高亮比例 =====
-            controls.inpHighlightHeight = document.createElement('input');
-            controls.inpHighlightHeight.type = 'number';
-            controls.inpHighlightHeight.step = '0.01';
-            controls.inpHighlightHeight.min = '1.0';
-            controls.inpHighlightHeight.max = '5.0';
-            controls.inpHighlightHeight.value =
-                state.config.dictConfig.highlightHeight || 1.15;
-            dictGrid.appendChild(
-                createControl('高亮高度', controls.inpHighlightHeight)
-            );
-
-            // 单字宽度：每个字符增加的列宽百分比。
-            controls.inpHighlightCharWidth = document.createElement('input');
-            controls.inpHighlightCharWidth.type = 'number';
-            controls.inpHighlightCharWidth.step = '0.1';
-            controls.inpHighlightCharWidth.min = '0.1';
-            controls.inpHighlightCharWidth.max = '10';
-            controls.inpHighlightCharWidth.value =
-                state.config.dictConfig.highlightCharWidth ||
-                DEFAULT_DICT_CONFIG.highlightCharWidth;
-            dictGrid.appendChild(
-                createControl('高亮字宽', controls.inpHighlightCharWidth)
-            );
-
-            controls.inpHighlightWidth = document.createElement('input');
-            controls.inpHighlightWidth.type = 'number';
-            controls.inpHighlightWidth.step = '1';
-            controls.inpHighlightWidth.min = '1';
-            controls.inpHighlightWidth.max = '99';
-            controls.inpHighlightWidth.value =
-                state.config.dictConfig.highlightWidth || 25;
-            dictGrid.appendChild(
-                createControl('最大总宽', controls.inpHighlightWidth)
-            );
-            
-            dictSection.appendChild(dictGrid);
-            form.appendChild(dictSection);
-            // 全局配置
-            var globalSection = document.createElement('div');
-            globalSection.className = 'config-section';
-            var globalTitleRow = document.createElement('div');
-            globalTitleRow.className = 'section-title-row';
-            var globalTitle = document.createElement('span');
-            globalTitle.textContent = '🌐 全局设置';
-            globalTitleRow.appendChild(globalTitle);
-		var globalResetBtn = document.createElement('button');
-		globalResetBtn.className = 'picdic-title-action-btn to_Default';
-		globalResetBtn.textContent = '恢复';
-		globalResetBtn.addEventListener('click', function(e) {
-		    e.stopPropagation();
-
-		    // 二次确认
-		    showConfirm(
-		        '确认恢复',
-		        '确定要恢复所有全局设置为默认值吗？此操作将覆盖您之前的所有自定义设置。',
-		        function() {  // 确认回调
-		            loadGlobalConfigJS().then(function(configData) {
-		                if (configData) {
-		                    var merged = {};
-		                    for (var key in DEFAULT_GLOBAL_CONFIG) {
-		                        if (key in configData) {
-		                            merged[key] = configData[key];
-		                        } else {
-		                            merged[key] = DEFAULT_GLOBAL_CONFIG[key];
-		                        }
-		                    }
-		                    Object.assign(state.configStore.data.globalConfig, merged);
-		                    state.configManager.notifyChange();
-		                    showToast('已从外部配置恢复全局设置');
-		                } else {
-		                    showConfirm('未找到外部配置', '未找到全局外部配置文件，将使用内置默认值。确认？', function() {
-		                        state.configStore.data.globalConfig = Object.assign({}, DEFAULT_GLOBAL_CONFIG);
-		                        state.configManager.notifyChange();
-		                        showToast('已恢复内置默认全局设置');
-		                    });
-		                }
-		            }).catch(function() {
-		                showConfirm('加载失败', '加载外部全局配置失败，将使用内置默认值。确认？', function() {
-		                    state.configStore.data.globalConfig = Object.assign({}, DEFAULT_GLOBAL_CONFIG);
-		                    state.configManager.notifyChange();
-		                    showToast('已恢复内置默认全局设置');
-		                });
-		            });
-		        },
-		        function() {  // 取消回调（可选）
-		            debugLog('恢复操作已取消');
-		        }
-		    );
-		});
-            globalTitleRow.appendChild(globalResetBtn);
-            globalSection.appendChild(globalTitleRow);
-            var globalGrid = document.createElement('div');
-            globalGrid.className = 'config-grid';
-            controls.chkDebug = document.createElement('input');
-            controls.chkDebug.type = 'checkbox';
-            controls.chkDebug.checked = state.config.globalConfig.DebugPanel_display;
-            globalGrid.appendChild(createControl('调试面板', controls.chkDebug));
-            controls.inpMaxHistory = document.createElement('input');
-            controls.inpMaxHistory.type = 'number';
-            controls.inpMaxHistory.step = '1';
-            controls.inpMaxHistory.min = '10';
-            controls.inpMaxHistory.max = '500';
-            controls.inpMaxHistory.value = state.config.globalConfig.maxHistorySize;
-            globalGrid.appendChild(createControl('历史记录', controls.inpMaxHistory));
-            controls.defaultPageSelect = document.createElement('select');
-            var pageOptions = [
-                { value: DEFAULT_PAGE_TYPES.FIRST_CONTENT, label: '正文首页' },
-                { value: DEFAULT_PAGE_TYPES.COVER, label: '词典封面' },
-                { value: DEFAULT_PAGE_TYPES.LAST_WORD, label: '末次查词' }
-            ];
-            pageOptions.forEach(function(opt) {
-                var option = document.createElement('option');
-                option.value = opt.value;
-                option.textContent = opt.label;
-                if (opt.value === state.config.globalConfig.defaultPageValue) {
-                    option.selected = true;
-                }
-                controls.defaultPageSelect.appendChild(option);
-            });
-            globalGrid.appendChild(createControl('首选词典', controls.defaultPageSelect));
-            controls.inpPreload = document.createElement('input');
-            controls.inpPreload.type = 'number';
-            controls.inpPreload.step = '1';
-            controls.inpPreload.min = '0';
-            controls.inpPreload.max = '5';
-            controls.inpPreload.value = state.config.globalConfig.preloadPages;
-            globalGrid.appendChild(createControl('预加载页', controls.inpPreload));
-            controls.chkDoubleTap = document.createElement('input');
-            controls.chkDoubleTap.type = 'checkbox';
-            controls.chkDoubleTap.checked = state.config.globalConfig.enableDoubleTapZoom;
-            globalGrid.appendChild(createControl('双击放大', controls.chkDoubleTap));
-            controls.chkClickPageTurn = document.createElement('input');
-            controls.chkClickPageTurn.type = 'checkbox';
-            controls.chkClickPageTurn.checked = state.config.globalConfig.enableClickPageTurn;
-            globalGrid.appendChild(createControl('单击翻页', controls.chkClickPageTurn));
-            controls.chkLongPressZoom = document.createElement('input');
-            controls.chkLongPressZoom.type = 'checkbox';
-            controls.chkLongPressZoom.checked = state.config.globalConfig.enableLongPressZoom;
-            globalGrid.appendChild(createControl('长按放大', controls.chkLongPressZoom));
-            controls.inpLongPressDelay = document.createElement('input');
-            controls.inpLongPressDelay.type = 'number';
-            controls.inpLongPressDelay.step = '50';
-            controls.inpLongPressDelay.min = '200';
-            controls.inpLongPressDelay.max = '1000';
-            controls.inpLongPressDelay.value = state.config.globalConfig.longPressDelay;
-            globalGrid.appendChild(createControl('长按延迟', controls.inpLongPressDelay));
-            controls.chkShowZoomBtns = document.createElement('input');
-            controls.chkShowZoomBtns.type = 'checkbox';
-            controls.chkShowZoomBtns.checked = state.config.globalConfig.showZoomButtons;
-            globalGrid.appendChild(createControl('放大启用按钮', controls.chkShowZoomBtns));
-            controls.inpZoomStep = document.createElement('input');
-            controls.inpZoomStep.type = 'number';
-            controls.inpZoomStep.step = '0.1';
-            controls.inpZoomStep.min = '0.1';
-            controls.inpZoomStep.max = '2';
-            controls.inpZoomStep.value = state.config.globalConfig.zoomStep;
-            globalGrid.appendChild(createControl('按钮缩放倍数', controls.inpZoomStep));
-            controls.chkSwipe = document.createElement('input');
-            controls.chkSwipe.type = 'checkbox';
-            controls.chkSwipe.checked = state.config.globalConfig.swipeEnabled;
-            globalGrid.appendChild(createControl('滑动翻页', controls.chkSwipe));
-            controls.inpThreshold = document.createElement('input');
-            controls.inpThreshold.type = 'number';
-            controls.inpThreshold.step = '5';
-            controls.inpThreshold.min = '10';
-            controls.inpThreshold.max = '100';
-            controls.inpThreshold.value = state.config.globalConfig.swipeThreshold;
-            globalGrid.appendChild(createControl('滑动阈值', controls.inpThreshold));
-            controls.chkInputDebounce = document.createElement('input');
-            controls.chkInputDebounce.type = 'checkbox';
-            controls.chkInputDebounce.checked = state.config.globalConfig.enableInputDebounce;
-            globalGrid.appendChild(createControl('输入防抖', controls.chkInputDebounce));
-            controls.inpDebounceDelay = document.createElement('input');
-            controls.inpDebounceDelay.type = 'number';
-            controls.inpDebounceDelay.step = '50';
-            controls.inpDebounceDelay.min = '100';
-            controls.inpDebounceDelay.max = '1000';
-            controls.inpDebounceDelay.value = state.config.globalConfig.inputDebounceDelay;
-            globalGrid.appendChild(createControl('防抖延迟', controls.inpDebounceDelay));
-            controls.chkExpandOnZoom = document.createElement('input');
-            controls.chkExpandOnZoom.type = 'checkbox';
-            controls.chkExpandOnZoom.checked = state.config.globalConfig.enableExpandOnZoom;
-            globalGrid.appendChild(createControl('放大时扩展显示高度', controls.chkExpandOnZoom));
-            controls.chkAutoZoomExternal = document.createElement('input');
-            controls.chkAutoZoomExternal.type = 'checkbox';
-            controls.chkAutoZoomExternal.checked = state.config.globalConfig.autoZoomExternalFullIndex;
-            controls.chkAutoZoomExternal.title = '仅对具有词条坐标的全索引词典生效';
-            globalGrid.appendChild(createControl('外部查询放大定位', controls.chkAutoZoomExternal));
-            controls.chkFollow = document.createElement('input');
-            controls.chkFollow.type = 'checkbox';
-            controls.chkFollow.checked = state.config.globalConfig.darkModeFollowApp;
-            globalGrid.appendChild(createControl('跟随程序暗色', controls.chkFollow));
-            
-            controls.chkDark = document.createElement('input');
-            controls.chkDark.type = 'checkbox';
-            controls.chkDark.checked = state.config.globalConfig.darkMode;
-            if (state.config.globalConfig.darkModeFollowApp) {
-                controls.chkDark.disabled = true;
-                controls.chkDark.checked = isAppInDarkMode();
-            }
-            globalGrid.appendChild(createControl('单独暗色模式', controls.chkDark));
-            
-            var presetRow = document.createElement('div');
-            presetRow.className = 'picdic-config-row';
-            var presetLabel = document.createElement('label');
-            presetLabel.className = 'picdic-config-label';
-            presetLabel.textContent = '滤镜预设:';
-            presetRow.appendChild(presetLabel);
-            var presetWrapper = document.createElement('div');
-            presetWrapper.className = 'picdic-config-control';
-            controls.selectDarkFilterPreset = document.createElement('select');
-            FILTER_PRESETS.forEach(function(p) {
-                var opt = document.createElement('option');
-                opt.value = p.value;
-                opt.textContent = p.label;
-                controls.selectDarkFilterPreset.appendChild(opt);
-            });
-            controls.selectDarkFilterPreset.value = matchFilterPreset(state.config.globalConfig.darkModeFilter);
-            controls.selectDarkFilterPreset.addEventListener('change', function() {
-                var val = this.value;
-                if (val !== '__custom__') {
-                    controls.inpDarkFilter.value = val;
-                }
-            });
-            presetWrapper.appendChild(controls.selectDarkFilterPreset);
-            presetRow.appendChild(presetWrapper);
-            globalGrid.appendChild(presetRow);
-            
-            var filterRow = document.createElement('div');
-            filterRow.className = 'picdic-config-row filter-row';
-            var filterLabel = document.createElement('label');
-            filterLabel.className = 'picdic-config-label';
-            filterLabel.textContent = '暗色滤镜:';
-            filterRow.appendChild(filterLabel);
-            var filterWrapper = document.createElement('div');
-            filterWrapper.className = 'picdic-config-control';
-            controls.inpDarkFilter = document.createElement('input');
-            controls.inpDarkFilter.type = 'text';
-            controls.inpDarkFilter.value = state.config.globalConfig.darkModeFilter;
-            filterWrapper.appendChild(controls.inpDarkFilter);
-            filterRow.appendChild(filterWrapper);
-            globalGrid.appendChild(filterRow);
-
-            var darkBgRow = document.createElement('div');
-            darkBgRow.className = 'picdic-config-row';
-            var darkBgLabel = document.createElement('label');
-            darkBgLabel.className = 'picdic-config-label';
-            darkBgLabel.textContent = '暗色背景:';
-            darkBgRow.appendChild(darkBgLabel);
-            var darkBgWrapper = document.createElement('div');
-            darkBgWrapper.className = 'picdic-config-control';
-            controls.selectDarkBgPreset = document.createElement('select');
-            DARK_BG_PRESETS.forEach(function(p) {
-                var opt = document.createElement('option');
-                opt.value = p.value;
-                opt.textContent = p.label;
-                controls.selectDarkBgPreset.appendChild(opt);
-            });
-            controls.selectDarkBgPreset.value = matchDarkBgPreset(state.config.globalConfig.darkModeBgColor || '#1a1a1a');
-            darkBgWrapper.appendChild(controls.selectDarkBgPreset);
-            var darkBgPreview = document.createElement('span');
-            darkBgPreview.className = 'picdic-color-preview';
-            darkBgPreview.style.backgroundColor = state.config.globalConfig.darkModeBgColor || '#1a1a1a';
-            darkBgWrapper.appendChild(darkBgPreview);
-            controls.inpDarkBg = document.createElement('input');
-            controls.inpDarkBg.className = 'picdic-color-input';
-            controls.inpDarkBg.type = 'text';
-            controls.inpDarkBg.placeholder = '#1a1a1a';
-            controls.inpDarkBg.value = state.config.globalConfig.darkModeBgColor || '#1a1a1a';
-            darkBgWrapper.appendChild(controls.inpDarkBg);
-            darkBgRow.style.gridColumn = '1 / -1';
-            darkBgRow.appendChild(darkBgWrapper);
-            globalGrid.appendChild(darkBgRow);
-            controls.selectDarkBgPreset.addEventListener('change', function() {
-                var val = this.value;
-                if (val !== '__custom__') {
-                    controls.inpDarkBg.value = val;
-                    darkBgPreview.style.backgroundColor = val;
-                }
-            });
-            controls.inpDarkBg.addEventListener('input', function() {
-                darkBgPreview.style.backgroundColor = this.value || '#1a1a1a';
-            });
-            var lightBgRow = document.createElement('div');
-            lightBgRow.className = 'picdic-config-row';
-            var lightBgLabel = document.createElement('label');
-            lightBgLabel.className = 'picdic-config-label';
-            lightBgLabel.textContent = '浅色背景:';
-            lightBgRow.appendChild(lightBgLabel);
-            var lightBgWrapper = document.createElement('div');
-            lightBgWrapper.className = 'picdic-config-control';
-            controls.selectLightBgPreset = document.createElement('select');
-            LIGHT_BG_PRESETS.forEach(function(p) {
-                var opt = document.createElement('option');
-                opt.value = p.value;
-                opt.textContent = p.label;
-                controls.selectLightBgPreset.appendChild(opt);
-            });
-            controls.selectLightBgPreset.value = matchLightBgPreset(state.config.globalConfig.lightModeBgColor || '#ffffff');
-            lightBgWrapper.appendChild(controls.selectLightBgPreset);
-            var lightBgPreview = document.createElement('span');
-            lightBgPreview.className = 'picdic-color-preview';
-            lightBgPreview.style.backgroundColor = state.config.globalConfig.lightModeBgColor || '#ffffff';
-            lightBgWrapper.appendChild(lightBgPreview);
-            controls.inpLightBg = document.createElement('input');
-            controls.inpLightBg.className = 'picdic-color-input';
-            controls.inpLightBg.type = 'text';
-            controls.inpLightBg.placeholder = '#ffffff';
-            controls.inpLightBg.value = state.config.globalConfig.lightModeBgColor || '#ffffff';
-            lightBgWrapper.appendChild(controls.inpLightBg);
-            lightBgRow.style.gridColumn = '1 / -1';
-            lightBgRow.appendChild(lightBgWrapper);
-            globalGrid.appendChild(lightBgRow);
-            controls.selectLightBgPreset.addEventListener('change', function() {
-                var val = this.value;
-                if (val !== '__custom__') {
-                    controls.inpLightBg.value = val;
-                    lightBgPreview.style.backgroundColor = val;
-                }
-            });
-            controls.inpLightBg.addEventListener('input', function() {
-                lightBgPreview.style.backgroundColor = this.value || '#ffffff';
-            });
-            globalSection.appendChild(globalGrid);
-            form.appendChild(globalSection);
-            content.appendChild(form);
-            state.config._configControls = controls;
-        },
-        actions,
-        function() {
-            state.config._configPanelBuilt = false;
-            state.config._configOverlay = null;
-            state._configPopup = null;
-            configMenuVisible = false;
-        }
-    );
-    state._configPopup = popup;
-    state.config._configOverlay = popup.overlay;
-    state.config._configPanel = popup.panel;
-    state.config._configPanelBuilt = true;
-
-    function refreshConfigForm() {
-        if (!state.config._configControls) return;
-        var c = state.config._configControls;
-        c.chkDebug.checked = state.config.globalConfig.DebugPanel_display;
-        c.inpPreload.value = state.config.globalConfig.preloadPages;
-        c.chkShowZoomBtns.checked = state.config.globalConfig.showZoomButtons;
-        c.inpZoomStep.value = state.config.globalConfig.zoomStep;
-        c.chkSwipe.checked = state.config.globalConfig.swipeEnabled;
-        c.inpThreshold.value = state.config.globalConfig.swipeThreshold;
-        c.chkInputDebounce.checked = state.config.globalConfig.enableInputDebounce;
-        c.inpDebounceDelay.value = state.config.globalConfig.inputDebounceDelay;
-        c.chkDoubleTap.checked = state.config.globalConfig.enableDoubleTapZoom;
-        c.chkExpandOnZoom.checked = state.config.globalConfig.enableExpandOnZoom;
-        c.chkAutoZoomExternal.checked = state.config.globalConfig.autoZoomExternalFullIndex;
-        c.chkClickPageTurn.checked = state.config.globalConfig.enableClickPageTurn;
-        c.chkLongPressZoom.checked = state.config.globalConfig.enableLongPressZoom;
-        c.inpLongPressDelay.value = state.config.globalConfig.longPressDelay;
-        c.inpHighlightHeight.value = state.config.dictConfig.highlightHeight || 1.15;
-        c.inpHighlightWidth.value = state.config.dictConfig.highlightWidth || 25;
-        c.inpHighlightCharWidth.value = state.config.dictConfig.highlightCharWidth || DEFAULT_DICT_CONFIG.highlightCharWidth;
-        if (c.defaultPageSelect) {
-            c.defaultPageSelect.value = state.config.globalConfig.defaultPageValue || DEFAULT_PAGE_TYPES.FIRST_CONTENT;
-        }
-        c.chkFollow.checked = state.config.globalConfig.darkModeFollowApp;
-        c.chkDark.checked = state.config.globalConfig.darkMode;
-        if (state.config.globalConfig.darkModeFollowApp) {
-            c.chkDark.disabled = true;
-        } else {
-            c.chkDark.disabled = false;
-        }
-        c.inpDarkFilter.value = state.config.globalConfig.darkModeFilter;
-        c.selectDarkFilterPreset.value = matchFilterPreset(state.config.globalConfig.darkModeFilter);
-        c.selectLightBgPreset.value = matchLightBgPreset(state.config.globalConfig.lightModeBgColor || '#ffffff');
-        c.inpLightBg.value = state.config.globalConfig.lightModeBgColor || '#ffffff';
-        var lightPreview = c.selectLightBgPreset.parentNode.querySelector('.picdic-color-preview');
-        if (lightPreview) {
-            lightPreview.style.backgroundColor = state.config.globalConfig.lightModeBgColor || '#ffffff';
-        }
-        c.selectDarkBgPreset.value = matchDarkBgPreset(state.config.globalConfig.darkModeBgColor || '#1a1a1a');
-        c.inpDarkBg.value = state.config.globalConfig.darkModeBgColor || '#1a1a1a';
-        var darkPreview = c.selectDarkBgPreset.parentNode.querySelector('.picdic-color-preview');
-        if (darkPreview) {
-            darkPreview.style.backgroundColor = state.config.globalConfig.darkModeBgColor || '#1a1a1a';
-        }
-        c.inpZoom.value = state.config.dictConfig.doubleTapZoomFactor;
-        if (c.inpExternalCropLeft) {
-            c.inpExternalCropLeft.value =
-                Math.max(0, parseFloat(state.config.dictConfig.externalCropLeft) || 0);
-        }
-        if (c.inpExternalCropRight) {
-            c.inpExternalCropRight.value =
-                Math.max(0, parseFloat(state.config.dictConfig.externalCropRight) || 0);
-        }
-        if (c.inpHorizontalMarginPercent) {
-            c.inpHorizontalMarginPercent.value =
-                Math.max(0, parseFloat(state.config.dictConfig.horizontalMarginPercent) || 0);
-        }
-        if (c.chkZoomVerticalDragOnly) {
-            c.chkZoomVerticalDragOnly.checked =
-                state.config.dictConfig.zoomVerticalDragOnly !== false;
-        }
-        c.chkTopNav.checked = state.config.dictConfig.showTopNav;
-        c.inpMaxHistory.value = state.config.globalConfig.maxHistorySize;
+function ensurePicDicUi() {
+    try {
+        var existing = instantiatePicDicUi();
+        if (existing) return Promise.resolve(existing);
+    } catch (e) {
+        return Promise.reject(e);
     }
-    state.config._refreshConfigForm = refreshConfigForm;
 
-    function collectAndApplyConfig() {
-        var c = state.config._configControls;
-        // 收集全局配置
-        var newGlobal = {
-            DebugPanel_display: c.chkDebug.checked,
-            darkModeFollowApp: c.chkFollow.checked,
-            darkMode: c.chkDark.checked,
-            darkModeFilter: sanitizeCSSValue(c.inpDarkFilter.value) || DEFAULT_GLOBAL_CONFIG.darkModeFilter,
-            lightModeBgColor: sanitizeCSSValue(c.inpLightBg.value) || '#ffffff',
-            darkModeBgColor: sanitizeCSSValue(c.inpDarkBg.value) || '#1a1a1a',
-            swipeEnabled: c.chkSwipe.checked,
-            swipeThreshold: parseInt(c.inpThreshold.value, 10) || DEFAULT_GLOBAL_CONFIG.swipeThreshold,
-            preloadPages: parseInt(c.inpPreload.value, 10) || DEFAULT_GLOBAL_CONFIG.preloadPages,
-            zoomStep: parseFloat(c.inpZoomStep.value) || DEFAULT_GLOBAL_CONFIG.zoomStep,
-            showZoomButtons: c.chkShowZoomBtns.checked,
-            enableExpandOnZoom: c.chkExpandOnZoom.checked,
-            autoZoomExternalFullIndex: c.chkAutoZoomExternal.checked,
-            enableInputDebounce: c.chkInputDebounce.checked,
-            inputDebounceDelay: parseInt(c.inpDebounceDelay.value, 10) || 300,
-            enableLongPressZoom: c.chkLongPressZoom.checked,
-            longPressDelay: parseInt(c.inpLongPressDelay.value, 10) || 400,
-            enableDoubleTapZoom: c.chkDoubleTap.checked,
-            enableClickPageTurn: c.chkClickPageTurn.checked,
-            maxHistorySize: parseInt(c.inpMaxHistory.value, 10) || 50,
-            defaultPageValue: c.defaultPageSelect.value || DEFAULT_PAGE_TYPES.FIRST_CONTENT
-        };
-        if (newGlobal.maxHistorySize < 1) newGlobal.maxHistorySize = 50;
-        // 直接修改数据
-        Object.assign(state.configStore.data.globalConfig, newGlobal);
-        // 更新历史最大条数
-        if (state.historyStore && state.historyStore.getAll().length > newGlobal.maxHistorySize) {
-            state.historyStore.history.length = newGlobal.maxHistorySize;
-        }
-        var cropLeftValue = parseFloat(c.inpExternalCropLeft && c.inpExternalCropLeft.value);
-        var cropRightValue = parseFloat(c.inpExternalCropRight && c.inpExternalCropRight.value);
-        if (!isFinite(cropLeftValue) || cropLeftValue < 0) cropLeftValue = 0;
-        if (!isFinite(cropRightValue) || cropRightValue < 0) cropRightValue = 0;
+    if (_picdicUiLoadPromise) {
+        return _picdicUiLoadPromise;
+    }
 
-        var horizontalMarginPercentValue =
-            parseFloat(c.inpHorizontalMarginPercent && c.inpHorizontalMarginPercent.value);
-        if (!isFinite(horizontalMarginPercentValue) || horizontalMarginPercentValue < 0) {
-            horizontalMarginPercentValue = 0;
-        }
-        if (horizontalMarginPercentValue > 25) {
-            horizontalMarginPercentValue = 25;
-        }
+    // GoldenDict embedded 优先完全复用 Controller 已验证可用的本地脚本加载路径。
+    var controllerPromise = loadPicDicUiViaController();
 
-        var newDict = {
-            doubleTapZoomFactor: parseFloat(c.inpZoom.value) || DEFAULT_DICT_CONFIG.doubleTapZoomFactor,
-            showTopNav: c.chkTopNav.checked,
-            externalCropLeft: cropLeftValue,
-            externalCropRight: cropRightValue,
-            horizontalMarginPercent: horizontalMarginPercentValue,
-            zoomVerticalDragOnly: !!(c.chkZoomVerticalDragOnly && c.chkZoomVerticalDragOnly.checked),
-            highlightHeight: parseFloat(c.inpHighlightHeight.value) || 1.15,
-            highlightWidth: parseFloat(c.inpHighlightWidth.value) || 25,
-            highlightCharWidth: parseFloat(c.inpHighlightCharWidth.value) || DEFAULT_DICT_CONFIG.highlightCharWidth
-        };
-        Object.assign(state.configStore.data.dictConfig, newDict);
-        // 更新当前词典的 allDictConfigs
-        if (state.ui.currentDictId) {
-            if (!state.configStore.data.allDictConfigs[state.ui.currentDictId]) {
-                state.configStore.data.allDictConfigs[state.ui.currentDictId] = {};
-            }
-            for (var k in DEFAULT_DICT_CONFIG) {
-                state.configStore.data.allDictConfigs[state.ui.currentDictId][k] =
-                    state.configStore.data.dictConfig[k];
-            }
-        }
-        // 触发变更
-        state.configManager.notifyChange();
-        // 关闭面板
-        if (state._configPopup) {
-            state._configPopup.close();
-        }
-    }
-    state.config._collectAndApplyConfig = collectAndApplyConfig;
-}
-
-function showClearCachePanel() {
-    var existing = document.getElementById('clear-cache-subpanel');
-    if (existing) existing.remove();
-    var actions = [];
-    var confirmBtn = document.createElement('button');
-    confirmBtn.textContent = '确认清理';
-    confirmBtn.className = 'picdic-title-action-btn to_Confirm';
-    confirmBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        var types = [];
-        if (window._clearCacheCheckboxes) {
-            var checkboxes = window._clearCacheCheckboxes;
-            if (checkboxes.clear_index.checked) types.push('index');
-            if (checkboxes.clear_config.checked) types.push('config');
-            if (checkboxes.clear_all.checked) types.push('all');
-        }
-        if (types.length === 0) {
-            showToast('请至少选择一个清理选项。');
-            return;
-        }
-        doClearCache(types);
-        if (window._clearCachePopup) {
-            window._clearCachePopup.close();
-        }
-        closeConfigMenu();
-    });
-    actions.push(confirmBtn);
-    var cancelBtn = document.createElement('button');
-    cancelBtn.textContent = '取消';
-    cancelBtn.className = 'picdic-title-action-btn to_Cancel';
-    cancelBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        if (window._clearCachePopup) {
-            window._clearCachePopup.close();
-        }
-    });
-    actions.push(cancelBtn);
-    var popup = createPopup(
-        '🧹 清理缓存',
-        '',
-        function(content) {
-            var desc = document.createElement('p');
-            desc.textContent = '请选择要清理的内容：';
-            desc.style.margin = '8px 0';
-            content.appendChild(desc);
-            var options = [
-                { id: 'clear_index', label: '仅索引缓存（保留配置和历史）', checked: false },
-                { id: 'clear_config', label: '仅配置/历史（保留索引）', checked: false },
-                { id: 'clear_all', label: '全部清理（重置所有数据）', checked: false }
-            ];
-            var checkboxes = {};
-            options.forEach(function(opt) {
-                var label = document.createElement('label');
-                label.style.display = 'block';
-                label.style.padding = '4px 0';
-                var cb = document.createElement('input');
-                cb.type = 'checkbox';
-                cb.id = opt.id;
-                cb.checked = opt.checked || false;
-                checkboxes[opt.id] = cb;
-                label.appendChild(cb);
-                label.appendChild(document.createTextNode(' ' + opt.label));
-                content.appendChild(label);
-            });
-            window._clearCacheCheckboxes = checkboxes;
-        },
-        actions,
-        function() {
-            window._clearCachePopup = null;
-            window._clearCacheCheckboxes = null;
-        }
-    );
-    window._clearCachePopup = popup;
-}
-
-function doClearCache(types) {
-    var cleared = [];
-    if (types.indexOf('all') !== -1) {
-        dbClear('data');
-        dbClear('indexCache');
-        window.name = '';
-        state.configStore.data.globalConfig = Object.assign({}, DEFAULT_GLOBAL_CONFIG);
-        state.configStore.data.dictConfig = Object.assign({}, DEFAULT_DICT_CONFIG);
-        state.configStore.data.allDictConfigs = {};
-        if (state.historyStore) state.historyStore.history = [];
-        state.ui.currentDictId = null;
-        state.misc._savedWord = '';
-        state.misc._autoSearch = false;
-        state.cache._normalizedKeys = null;
-        state.cache._sortedKeys = null;
-        state.cache._keyMap = null;
-        state.cache._searchCacheReady = false;
-        state.cache._searchCacheDictId = null;
-        state.cache._searchCacheIndexPath = null;
-        state.cache._searchCacheRawKeyCount = 0;
-        if (state.configStore) state.configStore.save();
-        if (state.historyStore) state.historyStore.saveNow();
-        showToast('已清理全部数据，页面即将刷新。');
-        location.reload();
-        return;
-    }
-    if (types.indexOf('index') !== -1) {
-        dbClear('indexCache');
-        cleared.push('索引缓存');
-        state.cache._normalizedKeys = null;
-        state.cache._sortedKeys = null;
-        state.cache._keyMap = null;
-        state.cache._searchCacheReady = false;
-        state.cache._searchCacheDictId = null;
-        state.cache._searchCacheIndexPath = null;
-        state.cache._searchCacheRawKeyCount = 0;
-    }
-    if (types.indexOf('config') !== -1) {
-        dbClear('data');
-        window.name = '';
-        state.configStore.data.globalConfig = Object.assign({}, DEFAULT_GLOBAL_CONFIG);
-        state.configStore.data.dictConfig = Object.assign({}, DEFAULT_DICT_CONFIG);
-        state.configStore.data.allDictConfigs = {};
-        if (state.historyStore) state.historyStore.history = [];
-        state.configStore.save();
-        state.historyStore.saveNow();
-        cleared.push('配置/历史');
-    }
-    if (cleared.length === 0) {
-        showToast('未选择任何清理项。');
-        return;
-    }
-    showToast('已清理：' + cleared.join('、') + '。\n页面即将刷新以生效。');
-    if (types.length === 1 && types[0] === 'index') {
-        if (state.ui.currentDictId) {
-            (async function() {
-                try {
-                    await loadIndexAndConfig(state.ui.currentDictId);
-                    if (state.ui.pageNum) {
-                        displayPage(state.ui.pageNum);
-                    } else {
-                        var defaultTarget = getDefaultPage();
-                        if (defaultTarget) displayPage(defaultTarget);
-                    }
-                } catch (err) {}
-            })();
-        }
+    if (controllerPromise) {
+        _picdicUiLoadPromise = controllerPromise.catch(function(controllerError) {
+            debugLog('⚠️ Controller UI loader 失败，转直接 fallback: ' +
+                (controllerError && controllerError.message ? controllerError.message : controllerError));
+            return loadPicDicUiDirect();
+        });
     } else {
-        location.reload();
+        _picdicUiLoadPromise = loadPicDicUiDirect();
     }
+
+    _picdicUiLoadPromise = _picdicUiLoadPromise.then(function(ui) {
+        return ui;
+    }).catch(function(err) {
+        _picdicUiLoadPromise = null;
+        throw err;
+    });
+
+    return _picdicUiLoadPromise;
+}
+function invokePicDicUi(method) {
+    return ensurePicDicUi().then(function(ui) {
+        if (!ui || typeof ui[method] !== 'function') {
+            throw new Error('UI 方法不存在: ' + method);
+        }
+        return ui[method]();
+    }).catch(function(err) {
+        var message = err && err.message ? err.message : String(err || '未知错误');
+        debugLog('❌ UI 模块失败: ' + message);
+        showToast('UI 模块失败：' + message);
+    });
+}
+
+function showHistoryPanel() {
+    return invokePicDicUi('showHistoryPanel');
 }
 
 function showConfigMenu() {
-    if (configMenuVisible) return;
-    configMenuVisible = true;
-    if (!state.config._configPanelBuilt) {
-        buildConfigPanel();
-    }
-    if (!state.config._configPanelBuilt) {
-        buildConfigPanel();
-    }
-    if (state.config._refreshConfigForm) {
-        state.config._refreshConfigForm();
-    }
-    if (state.config._configOverlay && !state.config._configOverlay.parentNode) {
-        document.body.appendChild(state.config._configOverlay);
-    }
+    return invokePicDicUi('showConfigMenu');
 }
 
-function closeConfigMenu() {
-    if (state._configPopup) {
-        state._configPopup.close();
-    }
-    configMenuVisible = false;
+function showDictListMenu() {
+    return invokePicDicUi('showDictListMenu');
 }
 
-// ==================== 资源ID ====================
 function getCurrentResourceId() {
     var dictId = state.ui.currentDictId;
     var resourceId = null;
@@ -8182,9 +6698,7 @@ function getCurrentResourceId() {
 
 // ==================== 初始化 ====================
 function init() {
-    // 临时：强制删除数据库
-    //window.indexedDB.deleteDatabase('PicDicDB');
-    
+
     var debugDiv = document.createElement('div');
     debugDiv.className = 'picdic-debug-panel';
     debugDiv.id = 'debugPanel';
@@ -8205,24 +6719,19 @@ function init() {
 	window.addEventListener('error', function(e) {
 	    debugLog('❌ 全局错误: ' + e.message, 'error');
 	    showToast('发生错误，请尝试刷新页面');
-	    // 可选：将错误写入日志
 	    console.error('[PicDic Uncaught]', e);
 	});
 
-	// 未捕获的 Promise 异常
 	window.addEventListener('unhandledrejection', function(e) {
 	    debugLog('❌ 未处理的 Promise 错误: ' + e.reason, 'error');
 	    showToast('发生错误，请尝试刷新页面');
 	    console.error('[PicDic Unhandled Rejection]', e.reason);
 	});
-       //如果屏幕旋转或窗口大小改变，availableHeight 会变化。可以监听 resize 事件，在扩展模式下重新计算高度。
 	window.addEventListener('resize', function() {
-	    // 关键：MDict 环境下，如果处于扩展模式，直接跳过，防止循环
 	    if (_env.isMDictAndroid && state.layout.isExpanded) {
 	        return;
 	    }
 
-	    // 其他情况（桌面、GoldenDict、或未扩展时），按需调整
 	    if (state.layout.isExpanded && state.interaction.wrapper) {
 	        var toolbar = document.querySelector('.picdic-toolbar-wrapper');
 	        var toolbarHeight = toolbar ? toolbar.offsetHeight : 0;
@@ -8231,7 +6740,6 @@ function init() {
 	        if (availableHeight < 200) availableHeight = 200;
 	        state.interaction.wrapper.style.height = availableHeight + 'px';
 	        state.layout.expandedHeight = availableHeight;
-	        // 重新约束边界
 	        if (state.interaction.scale > 1.01) {
 	            constrainTransform();
 	        }
@@ -8264,10 +6772,8 @@ function init() {
     });
 }
 
-// ===== 在所有代码末尾（init 调用之后）设置标记 =====
 window._picdic_loaded = true;
 
-// 同时暴露 performSearch 为全局函数（便于外部点击事件调用）
 window._picdic_performSearch = performSearch;
 
 // 文字词典再次显示 PicDic 整页模式时调用：不重载索引，只按当前尺寸刷新界面/高亮。
@@ -8287,13 +6793,11 @@ window._picdic_embedded_refresh = function() {
     return true;
 };
 
-
 async function afterConfigReady() {
     if (window.location.protocol === 'mdx:') _env.isMDictAndroid = true;
     else if (window.location.protocol === 'content:') _env.isGoldenDictAndroid = true;
 
     // 词典列表跳转落地页的宿主词通常是 "picdic"。有效的一次性请求必须
-    // 优先于这个入口词，否则内部查询会被错误覆盖成 picdic。
     var initialHostWord = String(_initialExternalWord || '').trim().toLocaleLowerCase();
     var mayBeMDictJumpLanding = !initialHostWord || initialHostWord === 'picdic';
     if (_env.isMDictAndroid && mayBeMDictJumpLanding) {
@@ -8308,7 +6812,6 @@ async function afterConfigReady() {
         }
     }
 
-// ===== 使用保存的初始外部词条 =====
 if (_initialExternalWord && !state.misc._pendingMdictJumpRequest) {
     state.misc._savedWord = _initialExternalWord;
     state.misc._autoSearch = true;
@@ -8319,15 +6822,11 @@ if (_initialExternalWord && !state.misc._pendingMdictJumpRequest) {
     }
 }
 
-
-    // 初始化 configManager
     state.configManager = new ConfigManager(state.configStore);
-    // 注册变更回调（自动应用配置）
     state.configManager.onChange(function() {
         applyConfig();
     });
 
-    // 将 state.config 指向 configManager 的数据（兼容旧代码）
     state.config.globalConfig = state.configManager.store.data.globalConfig;
     state.config.dictConfig = state.configManager.store.data.dictConfig;
     state.config.allDictConfigs = state.configManager.store.data.allDictConfigs;
@@ -8354,8 +6853,7 @@ if (_initialExternalWord && !state.misc._pendingMdictJumpRequest) {
     var ids = Object.keys(dictList);
     var defaultId = state.config.globalConfig.defaultDictId;
     var targetDictId = defaultId && ids.indexOf(defaultId) !== -1 ? defaultId : ids[0];
-    
-    // 如果外部/MDict 跳转指定了词典 ID 且有效，优先使用。
+
     if (state._pendingDictId && ids.indexOf(state._pendingDictId) !== -1) {
         targetDictId = state._pendingDictId;
         debugLog('🔄 使用外部指定的词典: ' + targetDictId);
@@ -8368,13 +6866,11 @@ if (_initialExternalWord && !state.misc._pendingMdictJumpRequest) {
         showToast('跳转目标词典不存在：' + invalidJump.dictId);
     }
 
-
     state.ui.currentDictId = targetDictId;
     try {
         var embeddedHotStarted = false;
         if (_picdicEmbeddedMode && state.misc._savedWord) {
             // 关键快速路径：GoldenDict 新词条页优先只读取一个轻量词条分片和命中页位置。
-            // Hot miss 才恢复旧的大对象缓存/索引。
             embeddedHotStarted = await prepareEmbeddedHotIndex(targetDictId, state.misc._savedWord);
         }
         if (!embeddedHotStarted) {
@@ -8397,7 +6893,6 @@ if (_initialExternalWord && !state.misc._pendingMdictJumpRequest) {
             } catch (e) {}
         }
 
-        // MDict 词典列表跳转：先完成目标词典索引加载，再用原输入框词条查询。
         if (state.misc._pendingMdictJumpRequest) {
             var jumpRequest = state.misc._pendingMdictJumpRequest;
             var jumpWord = String(jumpRequest.word || '').trim();
@@ -8439,16 +6934,15 @@ if (_initialExternalWord && !state.misc._pendingMdictJumpRequest) {
 if (state.misc._savedWord && state.misc._autoSearch) {
     debugLog('🔥 afterConfigReady: 准备搜索保存的词 ' + state.misc._savedWord);
     state.ui.searchInput.value = state.misc._savedWord;
-    setTimeout(function() { 
+    setTimeout(function() {
         debugLog('🔥 afterConfigReady 延迟调用 performSearch');
-        performSearch(null, { external: true }); 
+        performSearch(null, { external: true });
     }, 100);
     state.misc._autoSearch = false;
     return;
 }
 
         debugLog('✅ 初始化完成，当前词典: ' + state.ui.currentDictId);
-        // 稳定界面（第一次加载，只显示容器和请求列表，不自动搜索）
         stabilizePicDic();
     } catch (err) {
         if (_picdicEmbeddedMode) {
@@ -8462,17 +6956,13 @@ if (state.misc._savedWord && state.misc._autoSearch) {
 
 // ==================== 页面生命周期保存（GoldenDict 发音安全） ====================
 // GoldenDict Android 的 gdPlayAudio() 会通过 window.location 跳转到音频协议。
-// WebView 可能因此触发 beforeunload，但原生层随后拦截该跳转并留在当前文章页。
 // 因此这里绝不能调用 cleanupAll()、删除图片 DOM、清空索引或中止图片请求；
-// 否则发音后页面仍保留，而 PicDic 图像区域已经被自身销毁。
 function persistStateBeforePageTransition() {
     if (state.historyStore && state.historyStore.getAll().length > 0) {
         state.historyStore.saveNow();
     }
 
     if (state.configStore) {
-        // 取消尚未触发的 500ms 延迟保存，并立即发起一次保存。
-        // 即使宿主最终不离开当前页，这也只是幂等持久化，不修改界面状态。
         if (state.configStore._saveTimer) {
             clearTimeout(state.configStore._saveTimer);
             state.configStore._saveTimer = null;
@@ -8488,9 +6978,6 @@ document.addEventListener('visibilitychange', function() {
 });
 
 window.addEventListener('beforeunload', function() {
-    // 仅保存数据，不做任何破坏性清理。
-    // 真正离开页面时，WebView 会自行回收 DOM、图片和内存；
-    // GoldenDict 发音伪导航被拦截时，当前图像区域则可完整保留。
     persistStateBeforePageTransition();
 });
 
@@ -8508,11 +6995,6 @@ if (document.readyState === 'loading') {
 }
 
 })();
-
-
-
-
-
 
 setTimeout(function(){
     if(typeof debugShowPTZHHeightClean==="function"){
