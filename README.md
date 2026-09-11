@@ -24,10 +24,31 @@ add-on Javascripts for managing scanned dictionaries for GoldenDict/Mdict on And
 * MDict 自定义滚动 fallback
 * UI 按需加载，减少普通查词时的 JS 解析量
 
-## 推荐目录
+## GoldenDict / PicDic 目录结构（以及文本词典目录）
 
 ```text
+
 GoldenDict/
+├── .config/
+│   └── article-style.css
+│
+├── SPA/
+│   └── ES-ZH_NEraGDEC_V2026/
+│       ├── ES-ZH_NEraGDEC_V2026.bmp
+│       ├── ES-ZH_NEraGDEC_V2026.ifo
+│       ├── ES-ZH_NEraGDEC_V2026.idx
+│       ├── ES-ZH_NEraGDEC_V2026.dict.dz
+│       └── ES-ZH_NEraGDEC_V2026.css
+│
+├── POR/
+│   └── PT-ZH_DPC_V2026/
+│       ├── PT-ZH_DPC_V2026.bmp
+│       ├── PT-ZH_DPC_V2026.ifo
+│       ├── PT-ZH_DPC_V2026.idx
+│       ├── PT-ZH_DPC_V2026.dict.dz
+│       └── PT-ZH_DPC_V2026.css
+│ 
+│ 
 └── PicDic/
     ├── PicDic_DictionaryController.js
     ├── PicDic_search.js
@@ -35,7 +56,30 @@ GoldenDict/
     ├── PicDic_dictionary_list.js
     ├── PicDic_language_ref.js
     ├── PicDic_global_config.ini
-    └── PicDic_search.css
+    ├── PicDic_search.css
+    │
+    │
+    ├── picdic-single.bmp          【“picdic”入口词条词典】
+    ├── picdic-single.ifo          【“picdic”入口词条词典】
+    ├── picdic-single.idx          【“picdic”入口词条词典】
+    ├── picdic-single.dict         【“picdic”入口词条词典】
+    │
+    │
+    ├── PicDic_ES-ZH_NEraGDEC/     【具体词典文件夹 1】
+    │   ├── PicDic_ES-ZH_NEraGDEC.bmp
+    │   ├── PicDic_ES-ZH_NEraGDEC.dsl
+    │   ├── PicDic_ES-ZH_NEraGDEC.dsl.files.zip  【图片】
+    │   ├── PicDic_ES-ZH_NEraGDEC_index.js  【索引JS】
+    │   └── ES-ZH_NEraGDEC_config.js  【文本词典跳转切换到相应picdic时所需的配置文件】
+    │
+    │
+    └── PicDic_PT-ZH_DPC/          【具体词典文件夹 2】
+        ├── PicDic_PT-ZH_DPC.bmp
+        ├── PicDic_PT-ZH_DPC.dsl
+        ├── PicDic_PT-ZH_DPC.dsl.files.zip
+        ├── PicDic_PT-ZH_DPC_index.js
+        └── PT-ZH_DPC_config.js
+
 ```
 
 `PicDic_ui.js` 不需要在 HTML 中单独引入，由 `PicDic_search.js` 在需要时自动加载。
