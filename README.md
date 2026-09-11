@@ -161,17 +161,89 @@ gdJumpTo(articleId)
 display:none;
 ```
 
-推荐GoldenDict android全局CSS设置中的`.gdarticleref`如下：
+推荐GoldenDict android全局CSS（ GoldenDict/.config/article-style.css ）设置如下：
 
 ```css
-.gdarticleref {
-    display:block!important;
-    height:0!important;
-    margin:0!important;
-    padding:0!important;
-    overflow:hidden!important;
-    visibility:hidden!important;
+# GoldenDict CSS 样式
+
+a {
+    text-decoration: none;
 }
+
+img {
+    max-width: 100%;
+}
+
+body {
+    margin-top: -5px;
+}
+
+.gdarticleref {
+    display: block !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    overflow: hidden !important;
+    visibility: hidden !important;
+}
+
+.gddictname {
+    font-size: 1em;
+    width: 100%;
+    overflow-x: hidden;
+    text-align: right;
+    text-overflow: ellipsis;
+    display: block;
+    white-space: nowrap;
+    color: #4480F8;
+    background: #E0E8F0;
+    border-radius: 0 0 0 6px;
+}
+
+.gdheadword {
+    display: none !important;
+}
+
+.gdarticle {
+    margin: 0;
+    padding: 0;
+    outline: red;
+}
+
+.gddefinition {
+}
+
+.dsl_article {
+}
+
+.dsl_definition {
+}
+
+.dsl_s_wav {
+}
+
+.dsl_m0 {
+}
+
+.dsl_p {
+}
+
+.stct_h {
+}
+
+.gdactivearticle .gddictname {
+    border: 1px solid darkred;
+    color: darkred;
+    background-color: #FFF2EC;
+}
+
+.gddefinition + .gddictname,
+.gddefinition + .gdheadword {
+    display: none !important;
+}
+
 ```
 
 
