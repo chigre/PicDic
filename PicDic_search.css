@@ -1,0 +1,1109 @@
+/* ================================================================
+   PicDic_search.css - 优化版（暗色模式全覆盖，含 body.dark-mode 支持）
+   ================================================================ */
+
+/* ==================== 1. 全局重置 & 基础样式 ==================== */
+.PIC_DIC {
+    /* 预留全局样式，暂不定义 */
+    font-size: 12px; /* 基础字号，可根据需要调整 */
+}
+.picdic-external-requests {
+    padding: 2px 2px;
+    background: #fff3cd;
+    border: 1px solid #ffeeba;
+    color: #856404;
+    margin: 4px 0;
+    font-size: 0.8em;
+    border-radius: 4px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 3px;
+}
+.picdic-external-words-head {
+    font-size:0.6em;
+    font-weight:bold;
+}
+.picdic-external-words {
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: #f8f9fa;
+    border: 1px solid #ddd;
+}
+.picdic-popup-panel {
+    font-size: 9px; /* 基础字号，可根据需要调整 */
+}
+/* 基础高亮块样式 */
+.picdic-hw-normal {
+    background-color: gray;
+    opacity: 0.1;
+    pointer-events: auto;
+    cursor: pointer;
+    border-radius: 2px;
+    box-sizing: border-box;
+    transition: background 0.2s, opacity 0.2s;
+}
+
+/* 高亮类（覆盖背景色和透明度） */
+.picdic-hw-highlight {
+     background-color: red !important;    /* 红色背景 */
+    opacity: 0.2;
+    pointer-events: auto;
+    cursor: pointer;
+    border-radius: 2px;
+    box-sizing: border-box;
+    transition: background 0.2s, opacity 0.2s;
+}
+
+/* ==================== 2. 顶部工具栏 ==================== */
+.PIC_DIC #searchBox {
+    background: #ffffff;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 2px 0;
+    margin-bottom: 1px;
+    gap: 6px;
+    font-size: 0.9em;
+    box-sizing: border-box;
+}
+
+.PIC_DIC .picdic-toolbar-wrapper {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.PIC_DIC .search-left {
+    display: flex;
+    align-items: center;
+    flex: 70;
+    box-sizing: border-box;
+    gap: 6px;
+    border: 1px solid #ccc;
+    color: #333;
+    border-radius: 4px;
+    min-width: 0;
+}
+
+.PIC_DIC #searchInput {
+    background: none;
+    flex: 50;
+    box-sizing: border-box;
+    padding: 2px 4px;
+    font-size: 1em;
+    font-weight: bold;
+    color: #333;
+    border: none;
+    outline: none;
+    user-select: text;
+    -webkit-user-select: text;
+    min-width: 0;
+    transition: background 0.3s, color 0.3s;
+}
+
+.PIC_DIC .page-info {
+    flex: 20;
+    padding: 0 4px;
+    font-size: 0.8em;
+    color: #333;
+    white-space: nowrap;
+    text-align: center;
+    border: none;
+    outline: none;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.PIC_DIC .toolbar-group {
+    display: flex;
+    flex: 30;
+    gap: 6px;
+    box-sizing: border-box;
+    min-width: 0;
+}
+
+.PIC_DIC .toolbar-btn {
+    flex: 1;
+    padding: 2px 0;
+    font-size: 1em;
+    cursor: pointer;
+    border: 1px solid #ccc;
+    background: #f0f0f0;
+    color: #333;
+    border-radius: 4px;
+    text-align: center;
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+    transition: background 0.2s, border-color 0.2s;
+    min-width: 0;
+}
+.PIC_DIC .toolbar-btn:hover {
+    background: #e0e0e0;
+}
+
+/* ==================== 3. 图片显示区域 ==================== */
+.PIC_DIC #result {
+    margin-top: 1px;
+    min-height: 400px;
+    min-height: 80vh;             /* 最小高度为视口高度的 80% */
+    overflow-y: auto;             /* 超出部分滚动 */
+    display: flex;                /* Flex 布局 */
+    flex-direction: column;      /* 纵向排列子元素 */
+}
+.PIC_DIC #result img {
+    max-width: 100%;
+    height: auto;
+    border: 1px solid #ccc;
+}
+
+.PIC_DIC .picdic-image-container {
+    position: relative;
+    width: 100%;
+    flex: 1;                      /* 自动撑满剩余高度 */
+    overflow: hidden;
+}
+
+.PIC_DIC .picdic-wrapper {
+    position: relative;
+    width: 100%;
+    height: 100%;                 /* 充满父容器 */
+    overflow: hidden;
+}
+
+.PIC_DIC .picdic-image {
+    display: block;
+    width: 100%;
+    height: auto;
+    transform-origin: 0 0;
+}
+
+.picdic-footer {
+    text-align: center;
+    font-family: Tahoma, Arial, sans-serif;
+    font-size: 1em;
+    color: #d0d0d0;
+    background-color: #f5e6d3;
+    padding: 2px 0;
+    width: 100%;
+    user-select: none;
+    border-top: 1px solid rgba(0,0,0,0.05); /* 细微分隔线 */
+    letter-spacing: 5px;
+}
+
+/* ==================== 4. 页码导航 ==================== */
+.PIC_DIC .page-nav {
+    text-align: center;
+    padding: 2px 0;
+}
+.PIC_DIC .page-nav span {
+    display: inline-block;
+    margin: 0 1px;
+    cursor: pointer;
+    padding: 1px 3px;
+    border-radius: 12.5%;
+    font-size: 0.8em;
+    background: #eee;
+    color: #333;
+    transition: background 0.2s;
+}
+.PIC_DIC .page-nav span.current {
+    background: #2196F3;
+    color: #fff;
+}
+
+.PIC_DIC .picdic-top-nav {
+    text-align: center;
+    padding: 4px 0;
+    font-size: 0.5em;
+    border-bottom: 1px solid #ccc;
+    margin-bottom: 4px;
+}
+.PIC_DIC .picdic-top-nav a {
+    color: #333;
+    text-decoration: none;
+    margin: 0 4px;
+}
+.PIC_DIC .picdic-top-nav a:hover {
+    text-decoration: underline;
+}
+
+/* ==================== 5. 热区 ==================== */
+.picdic-hot-zone-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.picdic-hot-zone {
+    position: absolute;
+    background: transparent;
+    pointer-events: auto;
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 3em;
+    transition: opacity 0.2s;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+}
+.picdic-hot-zone-top {
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 5%;
+    max-height: 30px;
+}
+.picdic-hot-zone-bottom {
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 5%;
+    max-height: 30px;
+}
+.picdic-hot-zone-left {
+    top: 10%;
+    left: 0;
+    width: 5%;
+    max-width: 30px;
+    height: 80%;
+}
+.picdic-hot-zone-right {
+    top: 10%;
+    right: 0;
+    width: 5%;
+    max-width: 30px;
+    height: 80%;
+}
+
+/* ==================== 6. 浮动缩放按钮 ==================== */
+.PIC_DIC .picdic-float-buttons {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    z-index: 99999;
+    display: none;
+    flex-direction: row;
+    gap: 4px;
+    pointer-events: auto;
+    padding: 3px 4px;
+    border-radius: 8px;
+}
+.PIC_DIC .picdic-float-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: none;
+    color: #fff;
+    font-size: 1.5em;
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    touch-action: manipulation;
+    pointer-events: auto;
+    opacity: 0.75;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* ==================== 7. 弹出面板（通用） ==================== */
+.picdic-popup-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 100001;
+    touch-action: none !important;   /* 禁止浏览器默认触摸行为（滚动、缩放） */
+}
+
+.picdic-popup-panel {
+    background: #fff;
+    color: #333;
+    border-radius: 8px;
+    padding: 16px;
+    max-width: 280px;
+    width: 96%;
+    overflow: hidden !important;           /* 面板本身不滚动 */
+    box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+    /* 确保面板高度由内容撑开，但不超过视口 80% */
+    height: auto !important;
+    max-height: 90vh !important;           /* 避免超出屏幕 */
+    /*min-height: 200px !important;  /* 保证最小高度，避免标题栏独占 */
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+/* ---- 标题行 ---- */
+.picdic-popup-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    flex-shrink: 0 !important;             /* 不会被压缩 */
+}
+.picdic-popup-title {
+    margin: 0;
+    font-size: 1.2em;
+    font-weight: bold;
+}
+/* 3. 内容容器：填满剩余空间，垂直滚动 */
+.picdic-popup-content {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    min-height: 0;             /* 防止 flex 溢出 */
+    touch-action: pan-y !important;  /* 允许垂直触摸滚动 */
+    overflow-y: auto !important;     /* 已有，确保内容可滚动 */
+}
+.picdic-popup-title-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.picdic-popup-close-btn {
+    background: rgba(200,200,200,0.8);
+    border: none;
+    font-size: 1.2em;
+    cursor: pointer;
+    color: #333;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    line-height: 24px;
+    text-align: center;
+    padding: 0;
+    font-weight: bold;
+}
+.picdic-popup-close-btn:hover {
+    background: rgba(200,200,200,1);
+}
+
+/* ---- 操作按钮（标题行内） ---- */
+.picdic-title-action-btn {
+    padding: 2px 8px;
+    font-size: 0.9em;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #fff;
+}
+.section-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0 !important;             /* 不会被压缩 */
+    padding: 2px 4px; 
+    height: 20px;
+    background: #f0f0f0;
+    font-size: 1em;
+    font-weight: bold;
+    border-bottom: 1px solid #ddd;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.picdic-title-action-btn.to_ClearHistory {
+    background: #f44336;
+}
+.picdic-title-action-btn.to_Confirm {
+    background: #f44336;
+}
+.picdic-title-action-btn.to_Cancel {
+    background: #4CAF50;
+}
+.picdic-title-action-btn.to_Apply {
+    background: #2196F3;
+}
+.picdic-title-action-btn.to_Default {
+    background: #2196F3;
+}
+.picdic-title-action-btn.to_ClearIndexCache {
+    background: #f44336;
+}
+.picdic-title-action-btn.to_Copy {
+    background: #2196F3;
+}
+
+/* ---- 列表容器 ---- */
+.picdic-popup-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.picdic-popup-list li {
+    padding: 6px 8px;
+    border-bottom: 1px solid #eee;
+    cursor: pointer;
+}
+
+/* ==================== 8. 各面板专属样式 ==================== */
+.picdic-resource-id-panel {
+    font-size: 0.8em;  /* 整个面板的基准字体大小 */
+}
+
+.picdic-resource-id-content{
+padding:6px 0 10px;
+opacity:.8;
+word-break:break-all;
+}
+.picdic-resource-id-row{
+display:grid;
+grid-template-columns:minmax(90px,1fr) minmax(90px,1fr) auto auto;
+gap:5px;
+align-items:center;
+padding:6px 0;
+border-bottom:1px solid rgba(128,128,128,.25);
+}
+.picdic-resource-id-panel button {
+    font-size: 1em; /* 保证与面板一致 */
+}
+
+
+/* ---- 历史面板 ---- */
+.picdic-history-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1px 1px;
+    margin: 0;
+    border-bottom: 1px solid #eee;
+    cursor: pointer;
+    transition: background 0.1s;
+}
+.picdic-history-item:hover {
+    background: #f5f5f5;
+}
+.picdic-history-item:active {
+    background: #e0e0e0;
+}
+/* 历史面板 - 跳转到 GoldenDict 的图标 */
+.picdic-lookup-in-GD-img {
+    width: 18px;
+    height: 18px;
+    font-size: 1.2em;
+    font-weight: bold;
+    color: orange;
+    border: 0;
+    border-radius: 3px;
+    margin-right: 6px;
+    cursor: pointer;
+    vertical-align: middle;
+}
+.picdic-history-word {
+    flex: 1;
+    font-weight: bold;
+    margin-right: 12px;
+    word-break: break-word;
+}
+
+.picdic-history-right {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 3px;
+    flex-shrink: 0;
+}
+.picdic-history-dict {
+    color: #555;
+    font-size: 0.85em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px;
+}
+.picdic-history-time {
+    color: #888;
+    font-size: 0.6em;
+    white-space: nowrap;
+}
+/* 历史面板 - 删除按钮 */
+.picdic-history-delete-btn {
+    margin-left: 6px;
+    padding: 0 2px;
+    font-size: 1.2em;
+    font-weight: bold;
+    color: #999;
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    transition: color 0.2s;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* ---- 词典列表面板（样式类，由JS生成） ---- */
+.picdic-dict-panel .picdic-popup-list {
+    padding: 0;
+    margin: 0;
+}
+
+/* 分组容器 */
+.picdic-dict-group-container {
+    border-bottom: none !important;
+    margin-top: 0;
+}
+
+/* 分组标题行 */
+.picdic-dict-group-title {
+    padding: 2px 4px; 
+    display: flex;
+    height: 20px;
+    align-items: center;
+    justify-content: space-between;
+    background: #f0f0f0;
+    font-weight: bold;
+    border-bottom: 1px solid #ddd;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* 分组上下移动按钮容器 */
+.picdic-group-order-btns {
+    display: flex;
+    gap: 4px;
+    width: 45px;
+    align-items: center;
+    justify-content: center; 
+}
+
+/* 分组上下移动按钮 */
+.picdic-group-order-btn {
+    width: 20px;
+    height: 20px;
+    font-size: 1.2em;
+    border: 1px solid #aaa;
+    border-radius: 3px;
+    background: #e0e0e0;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+.picdic-group-order-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+
+/* 组内词典列表 */
+.picdic-dict-sublist {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+/* 词典项 */
+.picdic-dict-item {
+    display: flex;
+    height: 24px;
+    align-items: center;
+    padding: 2px 4px; 
+    border-bottom: 1px solid #eee;
+    cursor: pointer;
+    transition: background 0.1s;
+    user-select: none;
+    -webkit-user-select: none;
+}
+.picdic-dict-item:hover {
+    background: #f5f5f5;
+}
+.picdic-dict-item.current {
+    /* background: #e0e0e0; */
+    font-style: italic;
+    font-weight: bold;
+}
+
+/* 默认星标 */
+.picdic-dict-default-star {
+    margin-right: 4px;
+    font-size: 1.5em;
+    cursor: pointer;
+}
+.picdic-dict-default-star.is-default {
+    color: #e33737; /* 红色 */
+}
+/* 词典图标 */
+.picdic-dict-icon {
+    margin-right: 4px;
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.picdic-dict-icon-img {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+    filter: none !important;
+}
+
+/* 词典名称 */
+.picdic-dict-name {
+    flex: 1;
+    min-width: 0;
+    word-break: break-word;
+}
+
+/* 词典上下移动按钮容器 */
+.picdic-dict-order-btns {
+    display: flex;
+    gap: 4px;
+    width: 45px;
+    align-items: center;
+    justify-content: center;
+}
+
+/* 词典上下移动按钮 */
+.picdic-dict-order-btn {
+    width: 20px;
+    height: 20px; 
+    font-size: 1.2em;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: #e0e0e0;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+.picdic-dict-order-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+    background: #f5f5f5;
+}
+
+/* ---- 配置面板 ---- */
+.picdic-config-form {
+    display: flex;
+    flex-direction: column;
+}
+.picdic-config-form .config-section {
+    margin-top: 8px;
+}
+.picdic-config-form .section-title {
+    font-weight: bold;
+    font-size: 1.4em;
+    margin-bottom: 4px;
+    padding: 0 8px;
+}
+.picdic-config-form .config-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px 8px;
+}
+.picdic-config-form .config-grid .picdic-config-row {
+    border-bottom: none;
+    padding: 2px 4px;
+    margin: 0;
+}
+.picdic-config-form .config-grid .filter-row {
+    grid-column: 1 / -1;
+}
+
+.picdic-config-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 8px;
+    border-bottom: 1px solid #eee;
+}
+.picdic-config-label {
+    flex: 0 0 auto;
+    font-size: 1em;
+    font-weight: bold;
+    color: #333;
+    margin-right: 10px;
+}
+.picdic-config-control {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+.picdic-config-control select,
+.picdic-config-control input[type="number"],
+.picdic-config-control input[type="text"] {
+    width: 100%;
+    box-sizing: border-box;
+    background: #fff;
+    color: #333;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 2px 4px;
+    font-size: 1em;
+    min-width: 0;
+}
+.picdic-config-control input[type="checkbox"] {
+    margin: 0;
+    flex: 0 0 auto;
+    accent-color: #2196F3;
+}
+.picdic-color-preview {
+	display:inline-block;
+	width:60px;
+	height:20px;
+	border:1px solid #888;
+	border-radius:4px;
+	margin-left:8px;
+	vertical-align:middle;
+}
+.picdic-color-input {
+width: 60px;
+margin-left: 8px;
+}
+/* picdic-confirm.css - 自定义确认对话框样式 */
+.picdic-confirm-dialog {
+padding: 15px;
+margin: 0;
+max-width: 180px;
+max-height: 100px;
+}
+.picdic-confirm-content {
+    padding: 16px 0;
+    text-align: center;
+    font-size: 1.2em;
+}
+
+.picdic-confirm-content .btn-container {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.picdic-confirm-content .picdic-confirm-btn,
+.picdic-confirm-content .picdic-cancel-btn {
+    padding: 4px 8px;
+    border: none;
+    border-radius: 4px;
+    font-size: 1.2em;
+    cursor: pointer;
+}
+
+.picdic-confirm-content .picdic-confirm-btn {
+    background: #4CAF50;
+    color: #fff;
+}
+
+.picdic-confirm-content .picdic-cancel-btn {
+    background: #f44336;
+    color: #fff;
+}
+/* ==================== 9. 调试面板 ==================== */
+.picdic-debug-panel {
+    position: fixed;
+    bottom: 10px;
+    left: 10px;
+    z-index: 10;
+    background: rgba(0,0,0,0.85);
+    color: #0f0;
+    font-size: 0.5em;
+    padding: 8px;
+    border-radius: 4px;
+    max-width: 90%;
+    max-height: 60%;
+    overflow: auto;
+    font-family: monospace;
+    word-wrap: break-word;
+}
+#debugPanel {
+    display: none;
+}
+.debug-log-container {
+    overflow: auto;
+    max-height: 100%;
+}
+.debug-btn-container {
+    display: flex;
+    gap: 4px;
+    margin: 2px 4px;
+}
+.export-log-btn {
+    padding: 2px 8px;
+    font-size: 1em;
+    background: #4CAF50;
+    color: #fff;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    pointer-events: auto;
+}
+.clear-log-btn {
+    padding: 2px 8px;
+    font-size: 1em;
+    background: #f44336;
+    color: #fff;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    pointer-events: auto;
+}
+
+/* ==================== 10. 杂项 ==================== */
+.picdic-page-error {
+    color: red;
+    text-align: center;
+    font-size: 1.2em;
+}
+.picdic-info-msg {
+    margin-top: 10px;
+    font-size: 1em;
+    text-align: center;
+    word-break: break-all;
+    padding: 6px;
+    border-radius: 4px;
+    background: #f9f9f9;
+    color: #555;
+}
+.picdic-index-warning {
+    background: #fff3cd;
+    color: #856404;
+    padding: 6px 8px;
+    border: 1px solid #ffeeba;
+    border-radius: 4px;
+    margin: 4px 0;
+    font-size: 1em;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.picdic-index-warning .warning-close {
+    background: none;
+    border: none;
+    font-size: 1.35em;
+    cursor: pointer;
+    color: #856404;
+    padding: 0 4px;
+}
+
+/* ================================================================
+   暗色模式 —— 同时作用于 .PIC_DIC.dark-mode 和 body.dark-mode
+   ================================================================ */
+
+/* 工具栏、搜索框、图片等（位于 .PIC_DIC 内部） */
+.PIC_DIC.dark-mode #searchBox {
+    background: #2a2a2a;
+}
+.PIC_DIC.dark-mode #searchInput {
+    background: #2a2a2a;
+    color: #ddd;
+}
+.PIC_DIC.dark-mode .search-left {
+    border-color: #555;
+}
+.PIC_DIC.dark-mode .page-info {
+    background: #2a2a2a;
+    color: #ccc;
+}
+.PIC_DIC.dark-mode .toolbar-btn {
+    background: #444;
+    color: #eee;
+    border-color: #666;
+}
+.PIC_DIC.dark-mode .toolbar-btn:hover {
+    background: #555;
+}
+.PIC_DIC.dark-mode #result {
+    background: #2a2a2a;
+}
+.PIC_DIC.dark-mode #result img {
+    border-color: #555;
+}
+.PIC_DIC.dark-mode .page-nav span {
+    background: #444;
+    color: #ccc;
+}
+.PIC_DIC.dark-mode .page-nav span.current {
+    background: #0d47a1;
+    color: #fff;
+}
+.PIC_DIC.dark-mode .picdic-top-nav {
+    border-bottom-color: #555;
+}
+.PIC_DIC.dark-mode .picdic-top-nav a {
+    color: #ccc;
+}
+
+/* picdic-confirm.css - 自定义确认对话框样式 */
+.dark-mode .picdic-confirm-content .picdic-confirm-btn {
+    background: #388E3C;
+}
+
+.dark-mode .picdic-confirm-content .picdic-cancel-btn {
+    background: #C62828;
+}
+
+.picdic-confirm-content .picdic-confirm-btn:hover,
+.picdic-confirm-content .picdic-cancel-btn:hover {
+    opacity: 0.9;
+}
+
+/* 弹出面板（直接挂载到 body）—— 使用 body.dark-mode */
+body.dark-mode .picdic-popup-panel {
+    background: #2a2a2a;
+    color: #ddd;
+}
+body.dark-mode .picdic-popup-close-btn {
+    background: rgba(80,80,80,0.9);
+    color: #ddd;
+}
+body.dark-mode .picdic-popup-close-btn:hover {
+    background: rgba(120,120,120,0.9);
+}
+body.dark-mode .picdic-popup-list li {
+    border-bottom-color: #555;
+}
+body.dark-mode .picdic-popup-title {
+    color: #ddd;
+}
+
+/* 标题按钮暗色 */
+body.dark-mode .picdic-title-action-btn.to_ClearHistory,
+body.dark-mode .picdic-title-action-btn.to_Confirm,
+body.dark-mode .picdic-title-action-btn.to_ClearIndexCache {
+    background: #1565C0;
+}
+body.dark-mode .picdic-title-action-btn.to_Cancel,
+body.dark-mode .picdic-title-action-btn.to_Copy {
+    background: #1565C0;
+}
+body.dark-mode .picdic-title-action-btn.to_Apply {
+    background: #1565C0;
+}
+body.dark-mode .picdic-title-action-btn.to_Default {
+    background: #1565C0;
+}
+
+/* 历史面板暗色 */
+body.dark-mode .picdic-history-item {
+    border-bottom-color: #444;
+}
+body.dark-mode .picdic-history-item:hover {
+    background: #2a2a2a;
+}
+body.dark-mode .picdic-history-item:active {
+    background: #3a3a3a;
+}
+body.dark-mode .picdic-history-dict {
+    color: #aaa;
+}
+body.dark-mode .picdic-history-time {
+    color: #777;
+}
+.picdic-history-delete-btn:hover {
+    color: #f44336; /* 红色 */
+}
+body.dark-mode .picdic-history-delete-btn {
+    color: #777;
+}
+body.dark-mode .picdic-history-delete-btn:hover {
+    color: #ff6b6b;
+}
+/* ==================== 词典列表面板 - 暗色模式（全部使用 body.dark-mode） ==================== */
+body.dark-mode .picdic-dict-group-title {
+    background: #3a3a3a;
+    border-bottom-color: #555;
+    color: #ddd;
+}
+
+body.dark-mode .picdic-group-order-btn {
+    background: #555;
+    border-color: #777;
+    color: #ddd;
+}
+body.dark-mode .picdic-group-order-btn:disabled {
+    opacity: 0.4;
+}
+
+body.dark-mode .picdic-dict-item {
+    border-bottom-color: #555;
+}
+body.dark-mode .picdic-dict-item:hover {
+    background: #3a3a3a;
+}
+body.dark-mode .picdic-dict-item.current {
+    /* background: #0d47a1 !important;  /* 强制覆盖，确保显示 */
+    color: #fff;
+}
+
+body.dark-mode .picdic-dict-name {
+    color: #ddd;
+}
+
+body.dark-mode .picdic-dict-order-btn {
+    background: #555;
+    border-color: #777;
+    color: #ddd;
+}
+body.dark-mode .picdic-dict-order-btn:disabled {
+    background: #444;
+    opacity: 0.4;
+}
+
+body.dark-mode .picdic-dict-default-star {
+    color: #004080;
+}
+
+body.dark-mode .picdic-dict-icon-img {
+   filter: none;
+}
+
+/* 配置面板暗色 */
+body.dark-mode .picdic-config-row {
+    border-bottom-color: #555;
+}
+body.dark-mode .picdic-config-label {
+    color: #ccc;
+}
+body.dark-mode .section-title-row {
+    background: #3a3a3a;
+    border-bottom-color: #555;
+    color: #ddd;
+}
+body.dark-mode .picdic-config-control select,
+body.dark-mode .picdic-config-control input[type="number"],
+body.dark-mode .picdic-config-control input[type="text"] {
+    background: #444;
+    color: #ddd;
+    border-color: #666;
+}
+body.dark-mode .picdic-config-control input[type="checkbox"] {
+    accent-color: #0d47a1;
+}
+
+/* 词典详情面板（无特定类，使用泛型） */
+body.dark-mode .picdic-popup-panel div[style*="padding"] {
+    color: inherit;
+}
+body.dark-mode .picdic-popup-panel strong {
+    color: #ddd;
+}
+
+/* 信息、警告暗色 */
+body.dark-mode .picdic-info-msg {
+    background: #333;
+    color: #aaa;
+}
+body.dark-mode .picdic-index-warning {
+    background: #3e3e00;
+    color: #ffdd57;
+    border-color: #555;
+}
+body.dark-mode .picdic-index-warning .warning-close {
+    color: #ffdd57;
+}
+
