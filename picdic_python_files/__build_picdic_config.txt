@@ -1,0 +1,49 @@
+# PicDic扫描版图片词典转换
+# 需提供以下原始文件：
+# （1）词典名_index.txt【原始索引文件：PYTHON转换需要】
+# （2）词典名_config.txt【本文件：PYTHON转换需要】
+# Python代码会生成以下文件：
+# （1）词典名.dsl【最终复制到文件夹：/PicDic/词典名/ 】
+# （2）词典名_index.js【最终复制到文件夹：/PicDic/词典名/ 】
+# （3）自动更新词典列表信息文件：PicDic_dictionary_list.js 【若同路径无该文件，则复制cmd命令行内相应结果去手动更新】
+# （4）词典名_for_Mdict.txt 以及 词典名_for_Stardict.txt【若为全索引文件，WITH_COORDINATES 和 GENERATE_MDX 均设置为1，之后请使用mdxbuilder或pyglossary转为所需的主词典文件，放在/PicDic/】
+# （3）词典名.bmp 或者 词典名.png【最终复制到文件夹：/PicDic/词典名/】
+# （4）词典名.dsl.files.zip【最终复制到文件夹：/PicDic/词典名/ 】
+#########################################################################
+看示例词典的文件夹结构就清楚了
+#########################################################################
+# 构建配置文件
+# 请根据实际情况填写，等号两边可以有空格
+
+# 【词典文件名】文件名.dsl | 文件名.dsl.files.zip | 文件名_index.js
+DICT_FILE_NAME = PicDic_ES-ZH_NEraGDEC
+
+# 【词典显示名称】
+DICT_NAME = 新时代西汉大词典 Nueva Era Gran Diccionario Español-Chino
+
+# 【索引语言】english / chinese / pinyin
+INDEX_LANGUAGE = spa
+
+# 【内容语言】
+CONTENTS_LANGUAGE = zho
+
+# 【词典栏数】
+COLUMN_NUM = 2
+
+# 【原始索引文件】
+INDEX_FILE = PicDic_ES-ZH_NEraGDEC_index.txt
+
+# 【原始索引是否包含详细索引坐标（0=NO，1=YES）】
+WITH_COORDINATES = 1
+
+# 【原始索引包含详细索引坐标的，设置true/1/yes，以生成可用于APP查询的主词典】
+GENERATE_MDX = 1
+
+# 【正文页面开始的标记】
+BODY_START_MARKER = 正文开始
+
+# 【正文页面结束的标记】
+BODY_END_MARKER = 正文结束
+
+# 【索引文件所在路径】如果不指定或留空，则默认使用python代码所在目录
+INDEX_DIR = 
