@@ -1,5 +1,6 @@
 # PicDic
 add-on Javascripts for managing scanned dictionaries for GoldenDict/Mdict on Android
+
 **PicDic** 是一套面向 **GoldenDict Android** 和 **MDict Android** 的图片词典检索与嵌入框架。
 
 它可以单独使用，也可以将扫描版词典与普通文字词典关联起来，在查询词条时自动定位到对应的图片页、栏和词条位置，并提供缩放、高亮、历史记录和词典管理等功能。
