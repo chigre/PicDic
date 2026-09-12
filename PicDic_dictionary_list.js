@@ -8,6 +8,22 @@ var picdic_dictList = {
         version: "1",
         resourceId: "bda20387733be287d41366c72bd3e53e"
     },
+    'PicDic_EN-EN_COD9': {
+        name: 'The Concise Oxford Dictionary 9th Edition',
+        index_language: "eng",
+        contents_language: "eng",
+        indexPath: 'PicDic_EN-EN_COD9/PicDic_EN-EN_COD9_index.js',
+        version: "1",
+        resourceId: 'f66dd092fbed54581d4c92c8175ee136'
+        },
+    'PicDic_EN-EN_WorldBook': {
+        name: 'The World Book Dictionary',
+        index_language: "eng",
+        contents_language: "eng",
+        indexPath: 'PicDic_EN-EN_WorldBook/PicDic_EN-EN_WorldBook_index.js',
+        version: "1",
+        resourceId: 'ae1a9325d9e49d68f07d231ec8c5bad1'
+        },
     'PicDic_EN-ZH_FarEastECD': {
             name: '遠東英漢大辭典 Far East English-Chinese Dictionary',
             index_language: 'eng',
@@ -16,6 +32,14 @@ var picdic_dictList = {
             version: '1',
             resourceId: '44ca71254349232db988226f61be9ebb'
         },
+    'PicDic_EN-ZH_RHWCD': {
+        name: "蓝登书屋韦氏英汉大学词典",
+        index_language: "eng",
+        contents_language: "zho",
+        indexPath: "PicDic_EN-ZH_RHWCD/PicDic_EN-ZH_RHWCD_index.js",
+        version: "1",
+        resourceId: "8801dfc9932c5c3db109773044e35469"
+    },
     'PicDic_ES-ZH_NEraGDEC': {
             name: '新时代西汉大词典 Nueva Era Gran Diccionario Español-Chino',
             index_language: 'spa',

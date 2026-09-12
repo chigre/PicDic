@@ -42,6 +42,12 @@ function _picdicDetectPicDicMainEntry() {
 }
 
 var _picdicEarlyIsPicDicMainEntry = _picdicDetectPicDicMainEntry();
+// 独立 PicDic 主入口：不应把宿主词头 "picdic" 当成需要搜索的外部词。
+// Embedded 模式即使查询词恰好是 picdic，也仍然属于正常外部查询。
+var _picdicEarlyIsStandaloneMainEntry =
+    !_picdicEmbeddedMode &&
+    (_picdicEarlyIsPicDicMainEntry ||
+     (!_picdicEarlyIsMDict && _picdicIsPicDicEntryWord(_initialExternalWord)));
 var MDICT_JUMP_REQUEST_KEY = 'picdic_mdict_jump_request_v1';
 var MDICT_JUMP_REQUEST_SCHEMA = 1;
 var MDICT_JUMP_REQUEST_TTL = 2 * 60 * 1000;
@@ -257,7 +263,8 @@ if (_picdicEarlyIsMDict && _picdicHostWindow !== window) {
         _picdicHostRegistry = existingRegistry;
         _picdicAppendRegistryRequest(
             _picdicHostRegistry,
-            _picdicEarlyJumpRequest ? _picdicEarlyJumpRequest.word : _initialExternalWord,
+            _picdicEarlyJumpRequest ? _picdicEarlyJumpRequest.word :
+                (_picdicEarlyIsStandaloneMainEntry ? null : _initialExternalWord),
             _picdicEarlyJumpRequest ? _picdicEarlyJumpRequest.dictId : _initialExternalDictId,
             window
         );
@@ -431,14 +438,14 @@ function stabilizePicDic() {
 
 // ==================== 单例检测 ====================
 if (window._picdic_loaded) {
-    if (_initialExternalWord) {
+    if (_initialExternalWord && !_picdicEarlyIsStandaloneMainEntry) {
         addExternalRequest(_initialExternalWord, _initialExternalDictId);
         stabilizePicDic();
     }
     return;
 }
 
-if (_initialExternalWord) {
+if (_initialExternalWord && !_picdicEarlyIsStandaloneMainEntry) {
     addExternalRequest(_initialExternalWord, _initialExternalDictId);
 }
 // ===================================================
@@ -3659,7 +3666,7 @@ function applyConfig() {
 	}
 
         updateConfigPanelIfVisible();
-        if (_initialExternalWord) return;
+        if (_initialExternalWord && !_picdicEarlyIsStandaloneMainEntry) return;
         applyHideDictTitles();
     });
 }
@@ -4197,6 +4204,47 @@ function getDefaultPage() {
         }
     }
     return firstContentPage;
+}
+
+
+// ==================== 应用当前词典的默认显示页 ====================
+function showConfiguredDefaultPage() {
+    if (!state.cache.dictionaryIndex || !state.ui.currentDictId) return;
+
+    function showResolvedTarget() {
+        var target = getDefaultPage();
+
+        if (target && typeof target === 'object' && target.type === 'search') {
+            if (state.ui.searchInput) state.ui.searchInput.value = target.word || '';
+            if (target.word) {
+                performSearch();
+                return;
+            }
+        } else if (target) {
+            displayPage(target);
+            return;
+        }
+
+        // 最后兜底：索引第一页。
+        if (state.cache.dictionaryIndex.pages && state.cache.dictionaryIndex.pages.length) {
+            displayPage(state.cache.dictionaryIndex.pages[0]);
+        }
+    }
+
+    // “词典封面”可能是外部 cover 图片。主入口首次加载时，
+    // discoverResource() 可能尚未完成，因此先确保封面发现结束再解析默认页。
+    var pageType = state.config.globalConfig.defaultPageValue || DEFAULT_PAGE_TYPES.FIRST_CONTENT;
+    if (pageType === DEFAULT_PAGE_TYPES.COVER) {
+        var cfg = state.configStore.data.allDictConfigs[state.ui.currentDictId];
+        if (!(cfg && cfg._cachedCover)) {
+            discoverResource(state.ui.currentDictId, 'cover', function() {
+                showResolvedTarget();
+            });
+            return;
+        }
+    }
+
+    showResolvedTarget();
 }
 
 // ==================== 视图变换与约束 ====================
@@ -6812,7 +6860,9 @@ async function afterConfigReady() {
         }
     }
 
-if (_initialExternalWord && !state.misc._pendingMdictJumpRequest) {
+if (_initialExternalWord &&
+    !state.misc._pendingMdictJumpRequest &&
+    !_picdicEarlyIsStandaloneMainEntry) {
     state.misc._savedWord = _initialExternalWord;
     state.misc._autoSearch = true;
     debugLog('📥 检测到外部词条: ' + _initialExternalWord);
@@ -6820,6 +6870,8 @@ if (_initialExternalWord && !state.misc._pendingMdictJumpRequest) {
         debugLog('📥 外部词典 ID: ' + _initialExternalDictId);
         state._pendingDictId = _initialExternalDictId;
     }
+} else if (_picdicEarlyIsStandaloneMainEntry) {
+    debugLog('📖 检测到 PicDic 主入口，按默认词典/默认页面初始化');
 }
 
     state.configManager = new ConfigManager(state.configStore);
@@ -6943,6 +6995,10 @@ if (state.misc._savedWord && state.misc._autoSearch) {
 }
 
         debugLog('✅ 初始化完成，当前词典: ' + state.ui.currentDictId);
+
+        // 独立 PicDic 主入口 / 无外部查询时，明确显示用户配置的默认页。
+        // 原代码只完成索引加载并 stabilize，result 区域并不会自动 render。
+        showConfiguredDefaultPage();
         stabilizePicDic();
     } catch (err) {
         if (_picdicEmbeddedMode) {

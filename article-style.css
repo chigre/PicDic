@@ -1,0 +1,86 @@
+/*@font-face{font-family:"Liberata";font-weight:normal;font-style:normal;src: url('file:///storage/emulated/0/GoldenDict/.config/literata-regular.otf');}
+@font-face{font-family:"Liberata";font-weight:normal;font-style:italic;src: url('file:///storage/emulated/0/GoldenDict/.config/literata-italic.otf');}
+@font-face{font-family:"Liberata";font-weight:bold;font-style:normal;src: url('file:///storage/emulated/0/GoldenDict/.config/literata-bold.otf');}
+@font-face{font-family:"Liberata";font-weight:bold;font-style:italic;src: url('file:///storage/emulated/0/GoldenDict/.config/literata-bold-italic.otf');}
+
+@font-face{font-family:"Bookerly";font-weight:normal;font-style:normal;src: url('file:///storage/emulated/0/GoldenDict/.config/Bookerly-Regular.ttf');}
+@font-face{font-family:"Bookerly";font-weight:normal;font-style:italic;src: url('file:///storage/emulated/0/GoldenDict/.config/Bookerly-RegularItalic.ttf');}
+@font-face{font-family:"Bookerly";font-weight:bold;font-style:normal;src: url('file:///storage/emulated/0/GoldenDict/.config/Bookerly-Bold.ttf');}
+@font-face{font-family:"Bookerly";font-weight:bold;font-style:italic;src: url('file:///storage/emulated/0/GoldenDict/.config/Bookerly-BoldItalic.ttf');}
+@font-face{font-family:"FZYouSong";font-weight:normal;font-style:normal;src: url('file:///storage/emulated/0/GoldenDict/.config/FZYouSJW_508R.TTF');}
+@font-face{font-family:"KaiXinSong";font-weight:normal;font-style:normal;src: url('file:///storage/emulated/0/GoldenDict/.config/KaiXinSong21.ttf');}
+@font-face{font-family:"FSung-p";font-weight:normal;font-style:normal;src: url('file:///storage/emulated/0/GoldenDict/.config/Fsung-p.ttf');}
+@font-face{font-family:"FSung-1";font-weight:normal;font-style:normal;src: url('file:///storage/emulated/0/GoldenDict/.config/FSung-1.ttf');}
+@font-face{font-family:"FSung-2";font-weight:normal;font-style:normal;src: url('file:///storage/emulated/0/GoldenDict/.config/FSung-2.ttf');}
+@font-face{font-family:"FSung-3";font-weight:normal;font-style:normal;src: url('file:///storage/emulated/0/GoldenDict/.config/FSung-3.ttf');}
+@font-face{font-family:"FSung-F";font-weight:normal;font-style:normal;src: url('file:///storage/emulated/0/GoldenDict/.config/FSung-F.ttf');}
+
+* { font-family: Bookerly, Liberata, FSung-p, "Segoe UI Symbol", FSung-1, FSung-2, FSung-3, FSung-F, sans-serif,'FZYouSong', "KaiXinSong";}
+*/
+a{text-decoration:none;}
+
+img{max-width:100%;}
+body {margin-top:-5px;}
+/*.gdarticleref{display:none;}*/
+.gdarticleref {
+    display:block!important;
+    height:0!important;
+    min-height:0!important;
+    margin:0!important;
+    padding:0!important;
+    border:0!important;
+    overflow:hidden!important;
+    visibility:hidden!important;
+}
+
+.gddictname
+{ 
+  font-size:1em;
+  width:100%;
+  overflow-x:hidden;
+  text-align:right;
+  text-overflow:ellipsis;
+  display:block;
+  white-space:nowrap;
+  color:#4480F8;
+  background:#E0E8F0;
+  border-radius: 0 0 0 6px;
+}
+
+
+/*.gdheadword{height:0.65em;visibility:hidden;}*/
+.gdheadword{
+    display:none!important;
+}
+.gdarticle{margin:0;padding:0;outline:red;}
+
+.gddefinition{}
+.dsl_article{}
+.dsl_definition{}
+.dsl_s_wav{}
+.dsl_m0{}
+.dsl_p{}
+.stct_h{}
+
+.gdactivearticle 
+{
+  /*border-right: 1px dotted #3399FF;
+  padding-left:0.5em;*/
+}
+
+.gdactivearticle .gddictname
+{
+border: 1px solid darkred;
+color: darkred;
+background-color:#FFF2EC;
+}
+/*
+::selection {
+  background:#cc0000;
+	color:#fff;
+}
+*/
+.gddefinition + .gddictname,
+.gddefinition + .gdheadword {
+    display:none!important;
+}
