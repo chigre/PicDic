@@ -1,4 +1,17 @@
 // PicDic_search.js - V8 Phase 1 Slim（单文件结构瘦身，核心算法保持不变）
+// v5.25：外部查询请求列表右侧增加关闭 X；关闭时仅清除外部请求提示，不影响当前图片、搜索结果或历史记录。
+
+// v5.17：逐级缩短到单字后，也继续按 0.9.8.5 构形库自动扩展异体字候选。
+// v5.12：单字可按 0.9.8.5 构形库自动扩展异体字候选；部件检索点击候选字与顶部输入框共用同一内部流程。
+// v5.4 修正：中文简繁智能检索支持“逐级删除末尾字符”回退；每一级仍按精确简繁→多字前缀检索，直到单字。
+// 智能模式不再回退到排序最近词头，避免无关定位。
+// v5.1 修正：缓存升级可见/分片让出主线程；搜索框支持全宋體；简繁检索始终合并原字与繁体候选。
+var _picdicMainScriptUrl = '';
+try {
+    var _picdicMainCurrentScript = document.currentScript;
+    _picdicMainScriptUrl = _picdicMainCurrentScript &&
+        (_picdicMainCurrentScript.src || _picdicMainCurrentScript.getAttribute('src')) || '';
+} catch (e) {}
 (function() {
 
 // ==================== MDict 父窗口级单例与外部请求汇总 ====================
@@ -42,12 +55,6 @@ function _picdicDetectPicDicMainEntry() {
 }
 
 var _picdicEarlyIsPicDicMainEntry = _picdicDetectPicDicMainEntry();
-// 独立 PicDic 主入口：不应把宿主词头 "picdic" 当成需要搜索的外部词。
-// Embedded 模式即使查询词恰好是 picdic，也仍然属于正常外部查询。
-var _picdicEarlyIsStandaloneMainEntry =
-    !_picdicEmbeddedMode &&
-    (_picdicEarlyIsPicDicMainEntry ||
-     (!_picdicEarlyIsMDict && _picdicIsPicDicEntryWord(_initialExternalWord)));
 var MDICT_JUMP_REQUEST_KEY = 'picdic_mdict_jump_request_v1';
 var MDICT_JUMP_REQUEST_SCHEMA = 1;
 var MDICT_JUMP_REQUEST_TTL = 2 * 60 * 1000;
@@ -263,8 +270,7 @@ if (_picdicEarlyIsMDict && _picdicHostWindow !== window) {
         _picdicHostRegistry = existingRegistry;
         _picdicAppendRegistryRequest(
             _picdicHostRegistry,
-            _picdicEarlyJumpRequest ? _picdicEarlyJumpRequest.word :
-                (_picdicEarlyIsStandaloneMainEntry ? null : _initialExternalWord),
+            _picdicEarlyJumpRequest ? _picdicEarlyJumpRequest.word : _initialExternalWord,
             _picdicEarlyJumpRequest ? _picdicEarlyJumpRequest.dictId : _initialExternalDictId,
             window
         );
@@ -358,6 +364,37 @@ function replaceExternalRequests(words, dictId) {
 
 window.replaceExternalRequests = replaceExternalRequests;
 
+function clearExternalRequests() {
+    var targetRequests = _picdicHostRegistry ?
+        _picdicHostRegistry.requests :
+        window._picdic_requests;
+
+    if (Array.isArray(targetRequests)) {
+        targetRequests.splice(0, targetRequests.length);
+    } else {
+        targetRequests = [];
+        if (_picdicHostRegistry) {
+            _picdicHostRegistry.requests = targetRequests;
+        }
+    }
+
+    window._picdic_requests = targetRequests;
+
+    if (_picdicHostRegistry) {
+        _picdicHostRegistry.requests = targetRequests;
+    }
+
+    // 只清除“外部查询请求”提示列表。
+    // 当前页面、当前搜索词、图片定位与查询历史都保持不变。
+    if (typeof updateRequestList === 'function') {
+        try { updateRequestList(); } catch (e) {}
+    }
+
+    return true;
+}
+
+window.clearExternalRequests = clearExternalRequests;
+
 function updateRequestList() {
     var container = document.querySelector('.PIC_DIC');
     if (!container) return;
@@ -398,6 +435,20 @@ spanwords.addEventListener('click', function(e) {
 });
         div.appendChild(spanwords);
     });
+
+    var closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'picdic-external-requests-close';
+    closeBtn.textContent = 'X';
+    closeBtn.title = '关闭外部查询请求列表';
+    closeBtn.setAttribute('aria-label', '关闭外部查询请求列表');
+    closeBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        clearExternalRequests();
+    });
+    div.appendChild(closeBtn);
+
     var searchBox = document.getElementById('searchBox');
     if (searchBox && searchBox.parentNode === container) {
         container.insertBefore(div, searchBox.nextSibling);
@@ -438,14 +489,14 @@ function stabilizePicDic() {
 
 // ==================== 单例检测 ====================
 if (window._picdic_loaded) {
-    if (_initialExternalWord && !_picdicEarlyIsStandaloneMainEntry) {
+    if (_initialExternalWord) {
         addExternalRequest(_initialExternalWord, _initialExternalDictId);
         stabilizePicDic();
     }
     return;
 }
 
-if (_initialExternalWord && !_picdicEarlyIsStandaloneMainEntry) {
+if (_initialExternalWord) {
     addExternalRequest(_initialExternalWord, _initialExternalDictId);
 }
 // ===================================================
@@ -858,7 +909,7 @@ var BOTTOM_SAFE_MARGIN = 4;
 var MAX_PRELOAD_CACHE = 10;
 var RESOURCE_CONCURRENCY = 3;
 var INDEX_LOAD_TIMEOUT = 20000;
-var INDEX_CACHE_SCHEMA = 3; // schema3：索引归属校验 + 持久化一对多规范化搜索缓存
+var INDEX_CACHE_SCHEMA = 4; // schema4：索引语言与索引检索方式分离，避免 zho/eng 覆盖 indexKeyType
 var MAX_LOG_LINES = 100;
 var EXTERNAL_COVER = '__cover_external__';
 var DEFAULT_PAGE_TYPES = {
@@ -914,6 +965,10 @@ var DEFAULT_GLOBAL_CONFIG = {
     inputDebounceDelay: 2000,
     enableExpandOnZoom: true,   // 是否启用放大时扩展高度
     autoZoomExternalFullIndex: true, // 外部查询在全索引词典中自动放大并定位高亮
+    autoZoomInternalSearch: false,   // 内部查询在全索引词典中自动放大并定位词条
+    enableChineseVariantSearch: true, // 中文直索引：简体输入智能扩展匹配繁体词条
+    enableAutoVariantCandidateQuery: true, // 单字查询：构形库异体字也作为内部查询候选
+    enableInternalJump: false, // 点击图片词头/高亮时改为在 PicDic 内部查询（默认关闭，保持宿主 App 跳转）
     darkModeFollowApp: false,
     lastDarkMode: false,
     darkMode: false,
@@ -922,6 +977,7 @@ var DEFAULT_GLOBAL_CONFIG = {
     lightModeBgColor: '#f5e6d3',
     defaultDictId: null,
     dictGroupOrder: null,
+    dictGroupCollapsed: null, // 词典列表：各语言对折叠状态（首次打开时建立）
     hideDictTitles: true
 };
 
@@ -1034,6 +1090,8 @@ var state = {
         _externalSearchPending: false,
         _externalFocusSeq: 0,
         _pendingExternalFocus: null,
+        _internalAutoZoomSeq: 0,
+        _pendingInternalAutoZoom: null,
         _currentSearchWord: '',
         _currentSearchNormalized: '',
         _currentSearchKeys: [],
@@ -1446,6 +1504,8 @@ function cleanupAll() {
     state.timers.clearAll();
     state.misc._externalFocusSeq++;
     state.misc._pendingExternalFocus = null;
+    state.misc._internalAutoZoomSeq++;
+    state.misc._pendingInternalAutoZoom = null;
     if (state.cache.historyWriteTimer) {
         clearTimeout(state.cache.historyWriteTimer);
         state.cache.historyWriteTimer = null;
@@ -1697,6 +1757,60 @@ function sanitizeCSSValue(value) {
     return sanitized;
 }
 
+function normalizeIndexLanguage(value) {
+    var key = String(value || '').toLowerCase().trim();
+    var aliases = {
+        'zh': 'zho',
+        'chi': 'zho',
+        'cmn': 'zho',
+        'zh-cn': 'zho',
+        'zh-tw': 'zho',
+        'zh-hans': 'zho',
+        'zh-hant': 'zho',
+        'en': 'eng'
+    };
+    return aliases[key] || key;
+}
+
+function isChineseIndexLanguage(value) {
+    var key = String(value || '').toLowerCase().trim();
+    return key === 'zh' || key === 'zho' || key === 'chi' ||
+           key === 'cmn' || key === 'yue' || key === 'zh-cn' ||
+           key === 'zh-tw' || key === 'zh-hans' || key === 'zh-hant';
+}
+
+function isEnglishIndexLanguage(value) {
+    var key = String(value || '').toLowerCase().trim();
+    return key === 'en' || key === 'eng';
+}
+
+function inferIndexKeyType(indexData, dict) {
+    var raw = indexData && indexData.indexKeyType;
+    if (raw) return String(raw).toLowerCase().trim();
+
+    // 兼容旧配置：历史上个别拼音索引词典可能把 pinyin 写在 index_language 中。
+    var legacy = dict && dict.index_language ? String(dict.index_language).toLowerCase().trim() : '';
+    if (legacy === 'pinyin') return 'pinyin';
+
+    // 其余语言默认都是直接词头索引；语言本身由 indexLanguage 单独保存。
+    return 'direct';
+}
+
+function getActiveIndexLanguage() {
+    var indexData = state.cache.dictionaryIndex;
+    if (indexData && indexData.indexLanguage) {
+        return normalizeIndexLanguage(indexData.indexLanguage);
+    }
+    var dict = window.picdic_dictList && window.picdic_dictList[state.ui.currentDictId];
+    return normalizeIndexLanguage(dict && dict.index_language ? dict.index_language : '');
+}
+
+function getActiveIndexKeyType() {
+    var indexData = state.cache.dictionaryIndex;
+    var dict = window.picdic_dictList && window.picdic_dictList[state.ui.currentDictId];
+    return inferIndexKeyType(indexData, dict);
+}
+
 function getDictLangCode(dictId, type) {
 
     if (!dictId) return -1;
@@ -1946,9 +2060,59 @@ function buildPageWordPositions(indexData) {
     return pagePositions;
 }
 
+function isHanLikeCodePoint(cp) {
+    // CJK radicals/strokes + Unified Ideographs/Extensions + compatibility ideographs.
+    // Keep this code-point based so supplementary-plane Han characters (e.g. U+2A6BD 𪚽)
+    // are not split into UTF-16 surrogate halves and accidentally normalized to an empty key.
+    return (cp >= 0x2E80 && cp <= 0x2EFF) ||   // CJK Radicals Supplement
+           (cp >= 0x2F00 && cp <= 0x2FDF) ||   // Kangxi Radicals
+           (cp >= 0x31C0 && cp <= 0x31EF) ||   // CJK Strokes
+           (cp >= 0x3400 && cp <= 0x4DBF) ||   // Extension A
+           (cp >= 0x4E00 && cp <= 0x9FFF) ||   // Unified Ideographs
+           (cp >= 0xF900 && cp <= 0xFAFF) ||   // Compatibility Ideographs
+           (cp >= 0x20000 && cp <= 0x2A6DF) || // Extension B
+           (cp >= 0x2A700 && cp <= 0x2B73F) || // Extension C
+           (cp >= 0x2B740 && cp <= 0x2B81F) || // Extension D
+           (cp >= 0x2B820 && cp <= 0x2CEAF) || // Extension E
+           (cp >= 0x2CEB0 && cp <= 0x2EBEF) || // Extension F
+           (cp >= 0x2EBF0 && cp <= 0x2EE5F) || // Extension I
+           (cp >= 0x2F800 && cp <= 0x2FA1F) || // Compatibility Ideographs Supplement
+           (cp >= 0x30000 && cp <= 0x3134F) || // Extension G
+           (cp >= 0x31350 && cp <= 0x323AF);   // Extension H
+}
+
+function containsHanLike(text) {
+    if (!text) return false;
+    for (var i = 0; i < text.length; i++) {
+        var cp = text.codePointAt(i);
+        if (isHanLikeCodePoint(cp)) return true;
+        if (cp > 0xFFFF) i++;
+    }
+    return false;
+}
+
+function isPrivateUseCodePoint(cp) {
+    // Unicode Private Use Areas: BMP PUA, Supplementary PUA-A and PUA-B.
+    // Dictionaries/fonts may assign their own glyph semantics here, so PicDic must
+    // treat these code points as opaque exact index keys rather than normalizing them away.
+    return (cp >= 0xE000 && cp <= 0xF8FF) ||
+           (cp >= 0xF0000 && cp <= 0xFFFFD) ||
+           (cp >= 0x100000 && cp <= 0x10FFFD);
+}
+
+function containsPrivateUse(text) {
+    if (!text) return false;
+    for (var i = 0; i < text.length; i++) {
+        var cp = text.codePointAt(i);
+        if (isPrivateUseCodePoint(cp)) return true;
+        if (cp > 0xFFFF) i++;
+    }
+    return false;
+}
+
 function normalize(word) {
     if (!word) return '';
-    var s = word.toLowerCase();
+    var s = String(word).toLowerCase();
     var map = {
         'á': 'a', 'à': 'a', 'ã': 'a', 'â': 'a', 'ä': 'a', 'å': 'a',
         'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e', 'ę': 'e',
@@ -1965,9 +2129,18 @@ function normalize(word) {
     };
     var result = '';
     for (var i = 0; i < s.length; i++) {
-        result += map[s[i]] || s[i];
+        var cp = s.codePointAt(i);
+        var ch = String.fromCodePoint(cp);
+        if (cp > 0xFFFF) i++;
+
+        if (map[ch]) {
+            result += map[ch];
+        } else if ((cp >= 0x30 && cp <= 0x39) ||
+                   (cp >= 0x61 && cp <= 0x7A) ||
+                   ch === 'ñ' || isHanLikeCodePoint(cp)) {
+            result += ch;
+        }
     }
-    result = result.replace(/[^a-z0-9ñ\u4e00-\u9fff]/g, '');
     return result;
 }
 
@@ -2225,11 +2398,10 @@ function dbClear(storeName) {
 // ==================== Embedded Hot-Start 轻量缓存 ====================
 // V7.1 correctness fix: word lookup keeps schema3 shard/LRU speed;
 // page positions revert to V6 strict readiness: only use when pagePositionsReady=true.
-// V7 / Hot Cache schema 3
+// V7 / Hot Cache schema 4
 // 稳定主线保持不变：Shared Runtime + Embedded Hot-start。
-// schema 3 的核心优化：
-// 3) page positions 已写入即可读取，不必等待整本 pagePositionsReady。
-var HOT_CACHE_SCHEMA = 3;
+// schema 4：分离 indexLanguage 与 indexKeyType，并使旧的混合语义缓存失效。
+var HOT_CACHE_SCHEMA = 4;
 var HOT_WORD_PREFIX_LEN = 3;
 var HOT_WORD_SHARD_COUNT = 8;
 var HOT_WORD_BUILD_BATCH = 900;
@@ -2552,7 +2724,8 @@ function createHotBuildMeta(dictId, indexData, dict, cacheKey) {
         cacheKey: cacheKey,
         dictId: dictId,
         indexPath: dict.indexPath || '',
-        indexKeyType: indexData.indexKeyType || dict.index_language || 'en',
+        indexLanguage: normalizeIndexLanguage(indexData.indexLanguage || dict.index_language || ''),
+        indexKeyType: inferIndexKeyType(indexData, dict),
         pages: indexData.pages ? indexData.pages.slice() : [],
         special: indexData.special || {},
         rawWordCount: 0,
@@ -2796,23 +2969,45 @@ function applyHotLiteSearchCache(dictId, normalizedWord, record, indexData) {
     state.cache._searchCacheRawKeyCount = keyMap[normalizedWord].length;
 }
 
-async function prepareEmbeddedHotIndex(dictId, word) {
-    if (!_picdicEmbeddedMode || !dictId || !word) return false;
+async function prepareEmbeddedHotIndexMany(dictId, words) {
+    if (!_picdicEmbeddedMode || !dictId) return false;
+
+    words = Array.isArray(words) ? words : [words];
+    var requested = [];
+    var requestedSeen = Object.create(null);
+    for (var wi = 0; wi < words.length; wi++) {
+        var requestedWord = String(words[wi] || '').trim();
+        if (!requestedWord) continue;
+        var requestedKey = requestedWord.toLocaleLowerCase();
+        if (requestedSeen[requestedKey]) continue;
+        requestedSeen[requestedKey] = true;
+        requested.push(requestedWord);
+    }
+    if (!requested.length) return false;
 
     var t0 = hotPerfNow();
-    var lookup = await loadHotWordLookup(dictId, word);
-    if (!lookup || !lookup.record || !lookup.record.wordToPages) return false;
+    var meta = await loadHotMeta(dictId);
+    if (!meta) return false;
+
+    var mergedRecord = null;
+    var hitWords = [];
+    for (var i = 0; i < requested.length; i++) {
+        var lookup = await loadHotWordLookup(dictId, requested[i], meta);
+        if (!lookup || !lookup.record || !lookup.record.wordToPages) continue;
+        mergedRecord = mergeHotWordRecord(mergedRecord, lookup.record);
+        hitWords.push(requested[i]);
+    }
+    if (!mergedRecord || !mergedRecord.keys || !mergedRecord.keys.length) return false;
     var tLookup = hotPerfNow();
 
     var dict = window.picdic_dictList && window.picdic_dictList[dictId];
     if (!dict) return false;
 
     var pageWordPositions = {};
-    if (lookup.meta.pagePositionsReady && lookup.record.pages) {
-        // V7.1: restore V6 strict positions readiness.
-        for (var i = 0; i < lookup.record.pages.length; i++) {
-            var page = lookup.record.pages[i];
-            var entries = await loadHotPagePositions(dictId, page, lookup.meta);
+    if (meta.pagePositionsReady && mergedRecord.pages) {
+        for (var p = 0; p < mergedRecord.pages.length; p++) {
+            var page = mergedRecord.pages[p];
+            var entries = await loadHotPagePositions(dictId, page, meta);
             if (entries && entries.length) pageWordPositions[String(page)] = entries;
         }
     }
@@ -2822,21 +3017,23 @@ async function prepareEmbeddedHotIndex(dictId, word) {
         _picdicDictId: dictId,
         _picdicIndexPath: dict.indexPath || '',
         _picdicHotLite: true,
-        indexKeyType: lookup.meta.indexKeyType || dict.index_language || 'en',
-        pages: lookup.meta.pages ? lookup.meta.pages.slice() : [],
-        special: lookup.meta.special || {},
-        wordToPages: lookup.record.wordToPages,
+        indexLanguage: normalizeIndexLanguage(meta.indexLanguage || dict.index_language || ''),
+        indexKeyType: meta.indexKeyType || inferIndexKeyType(null, dict),
+        pages: meta.pages ? meta.pages.slice() : [],
+        special: meta.special || {},
+        wordToPages: mergedRecord.wordToPages,
         pageWordPositions: pageWordPositions
     };
 
     setActiveDictionaryIndex(dictId, liteIndex);
     state.cache._hotLite = true;
-    state.cache._hotMeta = lookup.meta;
+    state.cache._hotMeta = meta;
     state.cache._hotBaseKey = getHotCacheBaseKey(dictId);
     state.cache._hotPageLoads = Object.create(null);
-    applyHotLiteSearchCache(dictId, lookup.normalized, lookup.record, liteIndex);
-    state.cache._hasPagePositions = hasOwnEntries(pageWordPositions);
     state.ui.currentDictId = dictId;
+    // hot-lite 只有少量真实词头，直接为这几个键建立搜索缓存，成本近似为零。
+    cacheNormalizedKeys();
+    state.cache._hasPagePositions = hasOwnEntries(pageWordPositions);
     resetCurrentSearchState();
     state.navigation.currentWordPages = null;
     state.navigation.currentPageKeyMap = null;
@@ -2845,13 +3042,18 @@ async function prepareEmbeddedHotIndex(dictId, word) {
     updatePagesInfo(dictId);
     applyConfig();
 
-    debugLog('⚡ V7 Embedded hot-start: dict=' + dictId + ', word=' + word +
-        ', pages=' + (lookup.record.pages ? lookup.record.pages.length : 0));
-    debugLog('⏱️ V7 hot-start timing: lookup=' + (tLookup - t0).toFixed(1) +
+    debugLog('⚡ v5.22 Embedded exact hot-start: dict=' + dictId +
+        ', requested=' + requested.join(' / ') + ', hit=' + hitWords.join(' / ') +
+        ', pages=' + (mergedRecord.pages ? mergedRecord.pages.length : 0));
+    debugLog('⏱️ v5.22 hot-start timing: lookup=' + (tLookup - t0).toFixed(1) +
         'ms, pagePositions=' + (tPages - tLookup).toFixed(1) +
         'ms, total=' + (hotPerfNow() - t0).toFixed(1) + 'ms');
 
     return true;
+}
+
+async function prepareEmbeddedHotIndex(dictId, word) {
+    return prepareEmbeddedHotIndexMany(dictId, [word]);
 }
 
 function ensureHotPagePositionsAsync(page) {
@@ -3666,7 +3868,7 @@ function applyConfig() {
 	}
 
         updateConfigPanelIfVisible();
-        if (_initialExternalWord && !_picdicEarlyIsStandaloneMainEntry) return;
+        if (_initialExternalWord) return;
         applyHideDictTitles();
     });
 }
@@ -3752,34 +3954,56 @@ function loadIndexAndConfigSync(dictId, indexPath, configPath) {
         var timedOut = false;
         var triedAbsolute = false;
 
+        var completing = false;
         function checkComplete() {
-            if (timedOut) return;
+            if (timedOut || completing) return;
             if (indexLoaded && configLoaded) {
+                completing = true;
                 if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
                 if (loadError) {
                     debugLog('❌ loadIndexAndConfigSync 完成，但有错误: ' + loadError.message);
                     reject(loadError);
                     return;
                 }
-                if (indexData) {
-                    setActiveDictionaryIndex(dictId, indexData);
-                    var dict = window.picdic_dictList[dictId];
-                    if (dict && dict.index_language) {
-                        state.cache.dictionaryIndex.indexKeyType = dict.index_language;
+
+                (async function() {
+                    var searchCache = null;
+                    if (indexData) {
+                        setActiveDictionaryIndex(dictId, indexData);
+                        var dict = window.picdic_dictList[dictId];
+                        if (dict) {
+                            state.cache.dictionaryIndex.indexLanguage = normalizeIndexLanguage(dict.index_language || '');
+                            state.cache.dictionaryIndex.indexKeyType = inferIndexKeyType(state.cache.dictionaryIndex, dict);
+                        }
+
+                        beginIndexCacheUpgradeStatus(dictId, '准备索引');
+                        await yieldForIndexCacheUpgrade();
+                        searchCache = await cacheNormalizedKeysAsync(null, function(done, total) {
+                            updateIndexCacheUpgradeStatus(dictId, '构建搜索缓存', done, total, 0, 68);
+                        });
+                        indexData.pageWordPositions = await buildPageWordPositionsAsync(indexData, function(done, total) {
+                            updateIndexCacheUpgradeStatus(dictId, '构建词条定位缓存', done, total, 68, 98);
+                        });
+                        state.cache._hasPagePositions = !!(indexData.pageWordPositions && hasOwnEntries(indexData.pageWordPositions));
+                        updatePagesInfo(dictId);
                     }
-                    var searchCache = cacheNormalizedKeys();
-                    updatePagesInfo(dictId);
-                }
-                mergeDictConfig(dictId, configData);
-                var cacheData = {
-                    indexData: indexData,
-                    searchCache: searchCache,
-                    dictConfig: JSON.parse(JSON.stringify(state.configStore.data.allDictConfigs[dictId] || {}))
-                };
-                saveIndexToCache(dictId, cacheData);
-                debugLog('✅ loadIndexAndConfigSync 完成，索引 pages 长度=' + (indexData ? indexData.pages.length : 'null'));
-                debugLog('📥 缓存索引 pages[0] = ' + state.cache.dictionaryIndex.pages[0]);
-                resolve();
+                    mergeDictConfig(dictId, configData);
+                    var cacheData = {
+                        indexData: indexData,
+                        searchCache: searchCache,
+                        dictConfig: JSON.parse(JSON.stringify(state.configStore.data.allDictConfigs[dictId] || {}))
+                    };
+                    saveIndexToCache(dictId, cacheData);
+                    finishIndexCacheUpgradeStatus(dictId);
+                    debugLog('✅ loadIndexAndConfigSync 完成，索引 pages 长度=' + (indexData ? indexData.pages.length : 'null'));
+                    if (state.cache.dictionaryIndex && state.cache.dictionaryIndex.pages) {
+                        debugLog('📥 缓存索引 pages[0] = ' + state.cache.dictionaryIndex.pages[0]);
+                    }
+                    resolve();
+                })().catch(function(error) {
+                    failIndexCacheUpgradeStatus(dictId, error);
+                    reject(error);
+                });
             }
         }
 
@@ -3813,7 +4037,7 @@ function loadIndexAndConfigSync(dictId, indexPath, configPath) {
                     }
                 } else {
                     tagIndexOwner(dictId, indexData);
-                    indexData.pageWordPositions = buildPageWordPositions(indexData);
+                    // pageWordPositions 改在 checkComplete() 中分片异步构建，避免首次/升级缓存时长时间阻塞主线程。
                 }
                 indexLoaded = true;
                 checkComplete();
@@ -3897,15 +4121,30 @@ async function loadIndexAndConfig(dictId) {
             setActiveDictionaryIndex(dictId, cached.indexData);
 
             var cachedSearchCacheWasValid = isSearchCacheOwnedBy(dictId, cached.indexData, cached.searchCache);
-            var loadedSearchCacheForDict = cacheNormalizedKeys(cached.searchCache);
-            var cacheNeedsRefresh = !cachedSearchCacheWasValid;
+            var cacheNeedsRefresh = !cachedSearchCacheWasValid || !cached.indexData.pageWordPositions;
+            var loadedSearchCacheForDict = null;
+
+            if (cacheNeedsRefresh) {
+                beginIndexCacheUpgradeStatus(dictId, '检查旧缓存');
+                // 先让浏览器完成一次绘制，用户能立即看到“正在升级”，而不是整个界面像死机。
+                await yieldForIndexCacheUpgrade();
+            }
+
+            if (cachedSearchCacheWasValid) {
+                loadedSearchCacheForDict = cacheNormalizedKeys(cached.searchCache);
+            } else {
+                loadedSearchCacheForDict = await cacheNormalizedKeysAsync(cached.searchCache, function(done, total) {
+                    updateIndexCacheUpgradeStatus(dictId, '构建搜索缓存', done, total, 0, 68);
+                });
+            }
 
             if (!cached.indexData.pageWordPositions) {
-                cached.indexData.pageWordPositions = buildPageWordPositions(cached.indexData);
+                cached.indexData.pageWordPositions = await buildPageWordPositionsAsync(cached.indexData, function(done, total) {
+                    updateIndexCacheUpgradeStatus(dictId, '构建词条定位缓存', done, total, 68, 98);
+                });
                 state.cache._hasPagePositions = !!(cached.indexData.pageWordPositions &&
                     hasOwnEntries(cached.indexData.pageWordPositions));
-                cacheNeedsRefresh = true;
-                debugLog('🔄 缓存中缺少 pageWordPositions，已重新生成');
+                debugLog('🔄 缓存中缺少 pageWordPositions，已分片重新生成');
             }
             if (cacheNeedsRefresh) {
                 var refreshedCacheData = {
@@ -3915,6 +4154,7 @@ async function loadIndexAndConfig(dictId) {
                 };
                 saveIndexToCache(dictId, refreshedCacheData);
                 debugLog('🔄 索引派生缓存已更新');
+                finishIndexCacheUpgradeStatus(dictId);
             }
 
             updatePagesInfo(dictId);
@@ -3990,7 +4230,79 @@ async function loadIndexAndConfig(dictId) {
 }
 
 // ==================== 一对多规范化搜索缓存 ====================
-var SEARCH_CACHE_SCHEMA = 1;
+// 缓存升级状态：旧缓存结构变化时明确提示，并分片让出主线程，避免“看起来像卡死”。
+var _picdicIndexCacheUpgradeToken = 0;
+var _picdicIndexCacheUpgradeActive = false;
+var _picdicIndexCacheUpgradePercent = 0;
+
+function getIndexCacheStatusElement() {
+    if (!state || !state.ui) return null;
+    if (state.ui.resultDiv) return state.ui.resultDiv;
+    return document.getElementById('resultDiv') || document.querySelector('.picdic-result');
+}
+
+function setIndexCacheStatusText(text) {
+    var el = getIndexCacheStatusElement();
+    if (!el) return;
+    el.setAttribute('data-picdic-cache-upgrade', '1');
+    el.setAttribute('aria-live', 'polite');
+    el.textContent = text;
+}
+
+function beginIndexCacheUpgradeStatus(dictId, phase) {
+    _picdicIndexCacheUpgradeToken++;
+    _picdicIndexCacheUpgradeActive = true;
+    _picdicIndexCacheUpgradePercent = 0;
+    setIndexCacheStatusText('⏳ 正在升级索引缓存… ' + (phase || '请稍候'));
+}
+
+function updateIndexCacheUpgradeStatus(dictId, phase, done, total, rangeStart, rangeEnd) {
+    var percent = 0;
+    rangeStart = typeof rangeStart === 'number' ? rangeStart : 0;
+    rangeEnd = typeof rangeEnd === 'number' ? rangeEnd : 100;
+    if (total > 0) {
+        var ratio = Math.max(0, Math.min(1, done / total));
+        percent = Math.round(rangeStart + (rangeEnd - rangeStart) * ratio);
+    } else {
+        percent = Math.round(rangeStart);
+    }
+    _picdicIndexCacheUpgradePercent = percent;
+    setIndexCacheStatusText('⏳ 正在升级索引缓存… ' + percent + '% · ' + (phase || '处理中'));
+}
+
+function finishIndexCacheUpgradeStatus(dictId) {
+    _picdicIndexCacheUpgradeActive = false;
+    _picdicIndexCacheUpgradePercent = 100;
+    var token = ++_picdicIndexCacheUpgradeToken;
+    setIndexCacheStatusText('✅ 索引缓存升级完成');
+    setTimeout(function() {
+        if (_picdicIndexCacheUpgradeToken !== token) return;
+        var el = getIndexCacheStatusElement();
+        if (el && el.getAttribute('data-picdic-cache-upgrade') === '1') {
+            el.textContent = '';
+            el.removeAttribute('data-picdic-cache-upgrade');
+        }
+    }, 900);
+}
+
+function failIndexCacheUpgradeStatus(dictId, error) {
+    _picdicIndexCacheUpgradeActive = false;
+    var msg = error && error.message ? error.message : String(error || '未知错误');
+    setIndexCacheStatusText('⚠️ 索引缓存升级失败：' + msg);
+}
+
+function yieldForIndexCacheUpgrade() {
+    return new Promise(function(resolve) {
+        var afterPaint = function() { setTimeout(resolve, 0); };
+        if (typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(afterPaint);
+        } else {
+            setTimeout(resolve, 0);
+        }
+    });
+}
+
+var SEARCH_CACHE_SCHEMA = 3; // v5.7: skip empty normalized-key buckets
 
 function hasOwnKey(obj, key) {
     return Object.prototype.hasOwnProperty.call(obj, key);
@@ -4041,6 +4353,9 @@ function buildSearchCacheData(dictId, indexData) {
     for (var i = 0; i < rawKeys.length; i++) {
         var originalKey = rawKeys[i];
         var normKey = normalize(originalKey);
+        // Do not group PUA/symbol/unsupported-script entries under an empty key.
+        // Their raw wordToPages entries remain searchable by exact code point.
+        if (!normKey) continue;
         if (!hasOwnKey(keyMap, normKey)) {
             keyMap[normKey] = [];
             normalizedKeys.push(normKey);
@@ -4070,6 +4385,137 @@ function buildSearchCacheData(dictId, indexData) {
         representativeKeys: representativeKeys,
         keyMap: keyMap
     };
+}
+
+async function buildSearchCacheDataAsync(dictId, indexData, onProgress) {
+    if (!indexData || !indexData.wordToPages) {
+        throw new Error('无法构建搜索缓存：索引缺少 wordToPages');
+    }
+    var dict = window.picdic_dictList && window.picdic_dictList[dictId];
+    var indexPath = dict && dict.indexPath ? dict.indexPath : '';
+    var rawKeys = Object.keys(indexData.wordToPages);
+    var keyMap = {};
+    var normalizedKeys = [];
+    var previousNorm = null;
+    var alreadySorted = true;
+    var batchSize = 700;
+
+    for (var i = 0; i < rawKeys.length; i++) {
+        var originalKey = rawKeys[i];
+        var normKey = normalize(originalKey);
+        if (normKey) {
+            if (!hasOwnKey(keyMap, normKey)) {
+                keyMap[normKey] = [];
+                normalizedKeys.push(normKey);
+                if (previousNorm !== null && compareNormalizedKeys(previousNorm, normKey) > 0) alreadySorted = false;
+                previousNorm = normKey;
+            }
+            keyMap[normKey].push(originalKey);
+        }
+
+        if ((i + 1) % batchSize === 0) {
+            if (onProgress) onProgress(i + 1, rawKeys.length);
+            await yieldForIndexCacheUpgrade();
+        }
+    }
+    if (onProgress) onProgress(rawKeys.length, rawKeys.length);
+
+    if (!alreadySorted) {
+        await yieldForIndexCacheUpgrade();
+        normalizedKeys.sort(compareNormalizedKeys);
+    }
+    var representativeKeys = new Array(normalizedKeys.length);
+    for (var j = 0; j < normalizedKeys.length; j++) {
+        representativeKeys[j] = keyMap[normalizedKeys[j]][0];
+        if ((j + 1) % 1800 === 0) await yieldForIndexCacheUpgrade();
+    }
+
+    indexData._picdicWordKeyCount = rawKeys.length;
+    return {
+        schema: SEARCH_CACHE_SCHEMA,
+        dictId: dictId,
+        indexPath: indexPath,
+        rawKeyCount: rawKeys.length,
+        normalizedKeys: normalizedKeys,
+        representativeKeys: representativeKeys,
+        keyMap: keyMap
+    };
+}
+
+async function buildPageWordPositionsAsync(indexData, onProgress) {
+    if (!indexData || !indexData.wordToPages) return {};
+    var wordToPages = indexData.wordToPages;
+    var firstKey = firstOwnKey(wordToPages);
+    var hasCoordinate = false;
+    if (firstKey) {
+        var firstEntry = wordToPages[firstKey];
+        if (Array.isArray(firstEntry) && firstEntry.length > 0 && typeof firstEntry[0] === 'object') {
+            var firstItem = firstEntry[0];
+            hasCoordinate = firstItem.col !== undefined || firstItem.y !== undefined || firstItem.ord !== undefined;
+        }
+    }
+    if (!hasCoordinate) {
+        debugLog('ℹ️ wordToPages 中无坐标信息（col/y/ord），跳过生成 pageWordPositions');
+        if (onProgress) onProgress(1, 1);
+        return {};
+    }
+
+    var rawKeys = Object.keys(wordToPages);
+    var pagePositions = {};
+    var batchSize = 500;
+    for (var i = 0; i < rawKeys.length; i++) {
+        var word = rawKeys[i];
+        var entry = wordToPages[word];
+        if (typeof entry === 'string') {
+            if (!pagePositions[entry]) pagePositions[entry] = [];
+            pagePositions[entry].push({ hw: word, col: 1, y: 0, ord: -1 });
+        } else if (Array.isArray(entry)) {
+            if (entry.length > 0 && typeof entry[0] === 'string') {
+                for (var p = 0; p < entry.length; p++) {
+                    var pg = entry[p];
+                    if (!pagePositions[pg]) pagePositions[pg] = [];
+                    pagePositions[pg].push({ hw: word, col: 1, y: 0, ord: -1 });
+                }
+            } else if (entry.length > 0 && typeof entry[0] === 'object') {
+                for (var e = 0; e < entry.length; e++) {
+                    var item = entry[e];
+                    var itemPg = item && item.pg;
+                    if (!itemPg) continue;
+                    if (!pagePositions[itemPg]) pagePositions[itemPg] = [];
+                    pagePositions[itemPg].push({
+                        hw: word,
+                        col: item.col || 1,
+                        y: item.y || 0,
+                        ord: item.ord !== undefined ? item.ord : -1
+                    });
+                }
+            }
+        }
+        if ((i + 1) % batchSize === 0) {
+            if (onProgress) onProgress(i + 1, rawKeys.length);
+            await yieldForIndexCacheUpgrade();
+        }
+    }
+    if (onProgress) onProgress(rawKeys.length, rawKeys.length);
+    return pagePositions;
+}
+
+async function cacheNormalizedKeysAsync(searchCache, onProgress) {
+    if (!state.cache.dictionaryIndex || !state.ui.currentDictId) return null;
+    var dictId = state.ui.currentDictId;
+    var indexData = state.cache.dictionaryIndex;
+    var prepared = null;
+    if (isSearchCacheOwnedBy(dictId, indexData, searchCache)) {
+        prepared = searchCache;
+    } else {
+        var current = getCurrentSearchCacheData(dictId);
+        if (isSearchCacheOwnedBy(dictId, indexData, current)) prepared = current;
+        else prepared = await buildSearchCacheDataAsync(dictId, indexData, onProgress);
+    }
+    applySearchCache(dictId, indexData, prepared);
+    debugLog('✅ 搜索缓存就绪（分片）: 原始键=' + prepared.rawKeyCount +
+        '，规范化键=' + prepared.normalizedKeys.length);
+    return prepared;
 }
 
 function getCurrentSearchCacheData(dictId) {
@@ -4204,47 +4650,6 @@ function getDefaultPage() {
         }
     }
     return firstContentPage;
-}
-
-
-// ==================== 应用当前词典的默认显示页 ====================
-function showConfiguredDefaultPage() {
-    if (!state.cache.dictionaryIndex || !state.ui.currentDictId) return;
-
-    function showResolvedTarget() {
-        var target = getDefaultPage();
-
-        if (target && typeof target === 'object' && target.type === 'search') {
-            if (state.ui.searchInput) state.ui.searchInput.value = target.word || '';
-            if (target.word) {
-                performSearch();
-                return;
-            }
-        } else if (target) {
-            displayPage(target);
-            return;
-        }
-
-        // 最后兜底：索引第一页。
-        if (state.cache.dictionaryIndex.pages && state.cache.dictionaryIndex.pages.length) {
-            displayPage(state.cache.dictionaryIndex.pages[0]);
-        }
-    }
-
-    // “词典封面”可能是外部 cover 图片。主入口首次加载时，
-    // discoverResource() 可能尚未完成，因此先确保封面发现结束再解析默认页。
-    var pageType = state.config.globalConfig.defaultPageValue || DEFAULT_PAGE_TYPES.FIRST_CONTENT;
-    if (pageType === DEFAULT_PAGE_TYPES.COVER) {
-        var cfg = state.configStore.data.allDictConfigs[state.ui.currentDictId];
-        if (!(cfg && cfg._cachedCover)) {
-            discoverResource(state.ui.currentDictId, 'cover', function() {
-                showResolvedTarget();
-            });
-            return;
-        }
-    }
-
-    showResolvedTarget();
 }
 
 // ==================== 视图变换与约束 ====================
@@ -4765,6 +5170,7 @@ function applyLoadedImage(page, direction, keepScale, callback, startTime) {
         drawWordAnnotations(page);
     }
     tryApplyExternalResultAutoFocus(page);
+    tryApplyInternalSearchAutoZoom(page);
     if (callback) callback(null);
 }
 
@@ -4943,7 +5349,7 @@ function updateNavigation(currentPage) {
         newNav.className = 'page-nav';
         var pages = state.navigation.currentWordPages;
         var pageKeyMap = state.navigation.currentPageKeyMap || {};
-        var indexKeyType = (state.cache.dictionaryIndex && state.cache.dictionaryIndex.indexKeyType) || 'en';
+        var indexKeyType = getActiveIndexKeyType();
         var showPinyin = (indexKeyType === 'pinyin' && state.navigation._lastInputHasChinese);
         pages.forEach(function(p, idx) {
             var span = document.createElement('span');
@@ -4960,13 +5366,26 @@ function updateNavigation(currentPage) {
             }
             if (showPinyin) {
                 var py = pageKeyMap[p] || '';
-                extraInfo = py ? ' ' + py : '';
+                extraInfo = py ? ' ' + py : ' ' + p;
+                span.title = py ? ('词头：' + py + '；页码：' + p) : ('页码：' + p);
             } else {
-                extraInfo = ' ' + p;
+                var originalKey = pageKeyMap[p] || '';
+                // 普通直索引显示“①原始词头 · 页码”；没有词头映射时继续只显示页码。
+                // 页码保留，便于同一词头跨多页时区分；title 中也保留完整信息。
+                extraInfo = originalKey ? (' ' + originalKey + ' · ' + p) : (' ' + p);
+                span.title = originalKey ? ('词头：' + originalKey + '；页码：' + p) : ('页码：' + p);
+                if (originalKey && shouldUsePicDicFSungForActiveDictionary()) {
+                    span.classList.add('picdic-search-fsung');
+                }
             }
             span.textContent = label + extraInfo;
             span.addEventListener('click', function(e) {
                 e.stopPropagation();
+                // v5.2：结果列表页签属于 PicDic 内部查询导航。
+                // 开启【内部查询放大定位】时，每次点击其它命中页都重新按该页词条坐标放大+定位；
+                // 关闭时 requestInternalSearchAutoZoom() 会自动清空 pending，displayPage() 保持整页显示。
+                state.navigation.currentWordIndex = idx;
+                requestInternalSearchAutoZoom(p);
                 displayPage(p);
             });
             newNav.appendChild(span);
@@ -5083,6 +5502,101 @@ function scheduleAnnotationRedrawAfterInteraction() {
     }
 
     waitForFinalTransform();
+}
+
+// ==================== 内部查询自动放大定位（仅全索引词典） ====================
+// 行为与“外部查询放大定位”一致：使用当前词典的放大倍数，并定位到命中词条的列与纵向坐标。
+function requestInternalSearchAutoZoom(page) {
+    if (!state.config.globalConfig.autoZoomInternalSearch || !isFullIndexDictionary()) {
+        state.misc._pendingInternalAutoZoom = null;
+        return;
+    }
+    var seq = ++state.misc._internalAutoZoomSeq;
+    state.misc._pendingInternalAutoZoom = {
+        seq: seq,
+        dictId: state.ui.currentDictId,
+        page: String(page)
+    };
+    setTimeout(function() {
+        tryApplyInternalSearchAutoZoom(page, seq);
+    }, 0);
+}
+
+function tryApplyInternalSearchAutoZoom(page, expectedSeq) {
+    var pending = state.misc._pendingInternalAutoZoom;
+    if (!pending) return false;
+    if (expectedSeq !== undefined && pending.seq !== expectedSeq) return false;
+    if (!state.config.globalConfig.autoZoomInternalSearch || !isFullIndexDictionary()) {
+        state.misc._pendingInternalAutoZoom = null;
+        return false;
+    }
+    if (pending.dictId !== state.ui.currentDictId ||
+        String(pending.page) !== String(page) ||
+        String(state.ui.pageNum) !== String(page) ||
+        !state.interaction.img || !state.interaction.wrapper ||
+        !state.interaction.img.complete || state.interaction.img.naturalWidth <= 0) {
+        return false;
+    }
+
+    var target = findExternalFocusEntry(page);
+    if (!target) {
+        state.misc._pendingInternalAutoZoom = null;
+        return false;
+    }
+
+    var seq = pending.seq;
+    var zoomFactor = parseFloat(state.config.dictConfig.doubleTapZoomFactor) || 1.85;
+    if (zoomFactor <= 1.01) zoomFactor = 1.05;
+
+    setTransformState(zoomFactor, 0, 0);
+    setWrapperHeight(true);
+    updateTransform();
+    applyConfig();
+
+    requestAnimationFrame(function() {
+        requestAnimationFrame(function() {
+            var current = state.misc._pendingInternalAutoZoom;
+            if (!current || current.seq !== seq || current.dictId !== state.ui.currentDictId ||
+                String(current.page) !== String(state.ui.pageNum)) return;
+
+            var imgRect = state.interaction.img.getBoundingClientRect();
+            var wrapperRect = state.interaction.wrapper.getBoundingClientRect();
+            if (!imgRect.width || !imgRect.height || !wrapperRect.width || !wrapperRect.height) return;
+
+            var columns = Math.round(zoomFactor);
+            if (columns < 1) columns = 1;
+            var col = parseInt(target.col, 10) || 1;
+            if (col < 1) col = 1;
+            if (col > columns) col = columns;
+            var y = parseFloat(target.y) || 0;
+
+            var imgTop = imgRect.top - wrapperRect.top;
+            var horizontalGeometry = getEffectiveHorizontalGeometry(columns);
+            var cropLeftNatural = horizontalGeometry ? horizontalGeometry.cropLeftNatural : 0;
+            var cropRightNatural = horizontalGeometry ? horizontalGeometry.cropRightNatural : 0;
+            var targetColZeroBased = clampHorizontalColumn(col - 1, columns);
+            var horizontalDelta = getColumnHorizontalDelta(targetColZeroBased, columns);
+            var targetTop = imgTop + y * imgRect.width / 100;
+            var desiredTop = Math.max(18, wrapperRect.height * 0.14);
+
+            state.interaction.translateX += horizontalDelta;
+            state.interaction.translateY += desiredTop - targetTop;
+            updateTransform();
+
+            state.misc._pendingInternalAutoZoom = null;
+            state._lastDrawTime = 0;
+            setTimeout(function() {
+                if (String(state.ui.pageNum) === String(page) && state.cache._hasPagePositions) {
+                    drawWordAnnotations(page);
+                }
+            }, 220);
+            debugLog('🎯 内部查询已自动放大定位: page=' + page +
+                ', word=' + (target.hw || '') +
+                ', cropLeft=' + cropLeftNatural +
+                ', cropRight=' + cropRightNatural);
+        });
+    });
+    return true;
 }
 
 // ==================== 外部查询自动放大定位（仅全索引词典） ====================
@@ -5250,16 +5764,16 @@ function tryApplyExternalResultAutoFocus(page, expectedSeq) {
     return true;
 }
 
-function navigateToHeadword(word) {
+function navigateToHostHeadword(word, dictId) {
     if (!word) return;
+    dictId = dictId || state.ui.currentDictId;
     var encodedWord = encodeURIComponent(word);
     var url;
     if (_env.isMDictAndroid) {
         url = 'mdx://mdict.cn/entry/-1/' + encodedWord;
     } else {
-        var dictId = state.ui.currentDictId;
         var sourceLang = getSourceLangCode(dictId);
-        var targetLang =  '-1'; //getTargetLangCode(dictId);
+        var targetLang = '-1'; // getTargetLangCode(dictId);
         url =
             'content://mobi.goldendict.android/article/' +
             sourceLang + '/' +
@@ -5271,6 +5785,40 @@ function navigateToHeadword(word) {
     } catch(error) {
         window.open(url, '_self');
     }
+}
+
+async function navigateToInternalHeadword(word, dictId) {
+    word = String(word || '').trim();
+    if (!word) return false;
+    dictId = dictId || state.ui.currentDictId;
+
+    // 与“历史记录正文点击”的内部查询语义统一：必要时先切词典，
+    // 再把词头交给 PicDic 自己的完整 performSearch 流程。
+    if (dictId && dictId !== state.ui.currentDictId) {
+        if (!window.picdic_dictList || !window.picdic_dictList[dictId]) {
+            showToast('目标词典不存在');
+            return false;
+        }
+        await switchDict(dictId);
+    }
+    if (!state.ui.searchInput) return false;
+    state.ui.searchInput.value = word;
+    updatePicDicSearchFSungMode(state.ui.searchInput);
+    warmPicDicSearchFSung(word);
+    performSearch(null, { internalJump: true });
+    return true;
+}
+
+function navigateToHeadword(word) {
+    if (!word) return;
+    if (state.config.globalConfig.enableInternalJump) {
+        navigateToInternalHeadword(word, state.ui.currentDictId).catch(function(error) {
+            debugLog('❌ PicDic 内部跳转失败: ' + (error && error.message ? error.message : error));
+            showToast('内部跳转失败：' + (error && error.message ? error.message : '未知错误'));
+        });
+        return;
+    }
+    navigateToHostHeadword(word, state.ui.currentDictId);
 }
 
 function drawWordAnnotations(page, force) {
@@ -5579,14 +6127,19 @@ function buildImageContainer() {
 
     if (window.ResizeObserver) {
         state.layout.resizeObserver = new ResizeObserver(function(entries) {
+            var wrapperChanged = false;
             for (var entry of entries) {
                 if (entry.target === wrapper) {
                     var rect = entry.contentRect;
                     state.layout.containerWidth = rect.width;
                     state.layout.containerHeight = rect.height;
                     updateHotZones();
+                    wrapperChanged = true;
                 }
             }
+            // v5.2：软键盘收起、地址栏/视口变化等都可能改变 wrapper 几何。
+            // 强制按最终几何重绘高亮，避免高亮条停留在键盘打开时的位置。
+            if (wrapperChanged) scheduleAnnotationRedrawAfterInteraction();
         });
         state.layout.resizeObserver.observe(wrapper);
     }
@@ -5911,6 +6464,8 @@ async function switchDict(dictId) {
             throw new Error('加载完成后的索引与所选词典不对应');
         }
         debugLog('🔄 switchDict: 加载索引后，pages 数量=' + (state.cache.dictionaryIndex ? state.cache.dictionaryIndex.pages.length : 'null'));
+        // 词典语言已经确定，立即切换搜索框字体；非中文词典恢复系统/宿主字体。
+        updatePicDicSearchFSungMode(state.ui.searchInput);
 
         if (!state.cache._searchCacheReady || state.cache._searchCacheDictId !== dictId) {
             throw new Error('词典索引已加载，但搜索缓存未就绪');
@@ -6011,13 +6566,13 @@ async function activateEmbeddedSessionNow(dictId, words, activationSeq) {
         await switchDict(dictId);
     } else {
         if (state.cache.dictionaryIndex && state.cache.dictionaryIndex._picdicHotLite) {
-            var hotPrepared = await prepareEmbeddedHotIndex(dictId, firstWord);
+            var hotPrepared = await prepareEmbeddedHotIndexMany(dictId, normalizedWords);
             if (!hotPrepared) {
                 await promoteHotLiteToFullIndex(dictId);
             }
             state.ui.searchInput.value = firstWord;
         }
-        performSearch(null, { external: true });
+        performSearch(null, { external: true, externalExactWords: normalizedWords.slice() });
     }
 
     updateRequestList();
@@ -6062,10 +6617,20 @@ function performSearch(e, options) {
     }
     options = options || {};
     var isExternalSearch = !!options.external || !!state.misc._externalSearchPending;
+    // v5.22: embedded 宿主入口只做“可信精确词头”快速查询。
+    // 简繁/异体/前缀/逐级缩短全部留给 PicDic 主界面的手动搜索。
+    // Builder v9.8+ 会把简体宿主别名对应的“转换前真实词头”写进 PicDic_SearchWord，
+    // 因而外部查询不再需要再次 OpenCC 或升级完整索引。
+    var embeddedExternalExactOnly = isExternalSearch && _picdicEmbeddedMode;
     state.misc._externalSearchPending = false;
     if (!isExternalSearch) {
         state.misc._externalFocusSeq++;
         state.misc._pendingExternalFocus = null;
+        state.misc._internalAutoZoomSeq++;
+        state.misc._pendingInternalAutoZoom = null;
+    } else {
+        state.misc._internalAutoZoomSeq++;
+        state.misc._pendingInternalAutoZoom = null;
     }
 
     if (!state.cache.dictionaryIndex) {
@@ -6073,12 +6638,49 @@ function performSearch(e, options) {
     }
 
     var inputWord = state.ui.searchInput ? state.ui.searchInput.value.trim() : '（无输入框）';
+    updatePicDicSearchFSungMode(state.ui.searchInput);
+    warmPicDicSearchFSung(inputWord);
     debugLog('🔍 performSearch: "' + inputWord + '"');
 
     if (inputWord && state.cache.dictionaryIndex && state.cache.dictionaryIndex._picdicHotLite &&
         !options._hotPrepared) {
         var requestedNorm = normalize(inputWord);
         var currentMap = state.cache._keyMap || {};
+
+        // v5.21：Embedded 外部查询的 hot-lite 只包含“入口词本身”的轻量索引。
+        // 若中文简繁或“中文单字包含异体字”开启，即使入口词已经精确命中，
+        // 也不能直接在 lite 索引上结束搜索；否则 OpenCC/异体候选根本不在
+        // wordToPages 中，会出现“内部手动搜索有简繁+异体，外部入口只有原字”的断层。
+        // 因此中文直索引的智能查询先升级为完整索引，再统一走 performSearch。
+        var hotIndexKeyType = getActiveIndexKeyType();
+        var hotIndexLanguage = getActiveIndexLanguage();
+        var hotHasChinese = containsHanLike(inputWord);
+        var hotHasPrivateUse = containsPrivateUse(inputWord);
+        var hotIsDirectChinese = (hotHasChinese || hotHasPrivateUse) && hotIndexKeyType !== 'pinyin' &&
+            (isChineseIndexLanguage(hotIndexLanguage) || isChineseIndexLanguage(hotIndexKeyType));
+        var hotNeedsSmartFullIndex = !embeddedExternalExactOnly && hotIsDirectChinese && (
+            !!state.config.globalConfig.enableChineseVariantSearch ||
+            !!state.config.globalConfig.enableAutoVariantCandidateQuery
+        );
+
+        if (hotNeedsSmartFullIndex) {
+            var smartRetryOptions = {};
+            for (var smartOptionKey in options) {
+                if (Object.prototype.hasOwnProperty.call(options, smartOptionKey)) {
+                    smartRetryOptions[smartOptionKey] = options[smartOptionKey];
+                }
+            }
+            smartRetryOptions._hotPrepared = true;
+            debugLog('🔄 外部中文智能查询需要完整索引，退出 hot-lite: "' + inputWord + '"');
+            promoteHotLiteToFullIndex(state.ui.currentDictId).then(function() {
+                state.ui.searchInput.value = inputWord;
+                performSearch(null, smartRetryOptions);
+            }).catch(function(error) {
+                showToast('中文智能查询准备失败: ' + (error && error.message ? error.message : error));
+            });
+            return;
+        }
+
         if (!hasOwnKey(currentMap, requestedNorm)) {
             var retryOptions = {};
             for (var optionKey in options) {
@@ -6131,11 +6733,20 @@ function performSearch(e, options) {
             state.ui.resultDiv.innerHTML = '❌ 索引格式错误';
             return;
         }
-        var indexKeyType = (state.cache.dictionaryIndex && state.cache.dictionaryIndex.indexKeyType) || 'en';
-        var hasChinese = /[\u4e00-\u9fff]/.test(inputWord);
+        var indexKeyType = getActiveIndexKeyType();
+        var indexLanguage = getActiveIndexLanguage();
+        var hasChinese = containsHanLike(inputWord);
+        var hasPrivateUse = containsPrivateUse(inputWord);
+        var isDirectChineseIndex = (hasChinese || hasPrivateUse) && indexKeyType !== 'pinyin' &&
+            (isChineseIndexLanguage(indexLanguage) || isChineseIndexLanguage(indexKeyType));
         state.navigation._lastInputHasChinese = hasChinese;
-        if (indexKeyType !== 'pinyin' && hasChinese) {
-            showToast('⚠️ 当前词典为英文索引，不支持中文搜索。建议切换到拼音索引词典或输入英文单词。');
+
+        // 中文直索引（zho/zh/chi/cmn/yue）应直接进入 wordToPages 搜索；
+        // 只有明确的非中文索引才拦截中文输入。pinyin 则走下面的拼音转换分支。
+        if (hasChinese && indexKeyType !== 'pinyin' &&
+            !isChineseIndexLanguage(indexLanguage) &&
+            !isChineseIndexLanguage(indexKeyType)) {
+            showToast('⚠️ 当前词典不是中文索引，不支持中文搜索。');
             return;
         }
         if (/^\d+$/.test(inputWord)) {
@@ -6238,6 +6849,7 @@ function performSearch(e, options) {
             state.navigation.currentWordIndex = 0;
             debugLog('📚 拼音匹配页面列表: ' + allPages.join(', '));
             if (isExternalSearch) requestExternalResultAutoFocus(allPages[0]);
+            else requestInternalSearchAutoZoom(allPages[0]);
             displayPage(allPages[0]);
             if (allPages.length > 1) {
                 var preloadCount = state.config.globalConfig.preloadPages || 1;
@@ -6255,47 +6867,377 @@ function performSearch(e, options) {
             state.cache._searchCacheDictId !== state.ui.currentDictId ||
             state.cache._searchCacheIndexPath !== state.cache.dictionaryIndex._picdicIndexPath ||
             !state.cache._normalizedKeys || !state.cache._keyMap) {
+            if (_picdicIndexCacheUpgradeActive) {
+                showToast('⏳ 索引缓存正在升级 ' + _picdicIndexCacheUpgradePercent + '%，完成后即可搜索');
+                return;
+            }
             cacheNormalizedKeys();
         }
         var normKeys = state.cache._normalizedKeys;
         var keyMap = state.cache._keyMap;
         var matchKeys = [];
         var matchedNormalized = normTarget;
+        var exactKey = null;
+        var variantCandidateKeys = [];
+        var variantPrefixKeys = [];
+        var resolvedSearchTerm = inputWord;
+        var usedShortenedChineseFallback = false;
 
-        var exactKey = hasOwnKey(wordToPages, inputWord) ? inputWord : null;
-        if (exactKey) matchKeys.push(exactKey);
-
-        var equivalentKeys = hasOwnKey(keyMap, normTarget) ? keyMap[normTarget] : null;
-        if (equivalentKeys) {
-            for (var ek = 0; ek < equivalentKeys.length; ek++) {
-                if (matchKeys.indexOf(equivalentKeys[ek]) === -1) {
-                    matchKeys.push(equivalentKeys[ek]);
-                }
+        // 中文词条的“前缀词头”匹配。只允许两个及以上 Unicode 字符，
+        // 避免单字查询扩展成海量“某字……”词条。
+        function appendChinesePrefixKeys(prefix, out, maxMatches) {
+            prefix = String(prefix || '');
+            if (!prefix || Array.from(prefix).length < 2) return 0;
+            maxMatches = parseInt(maxMatches, 10) || 64;
+            var added = 0;
+            for (var indexedKey in wordToPages) {
+                if (!hasOwnKey(wordToPages, indexedKey)) continue;
+                if (indexedKey === prefix || indexedKey.indexOf(prefix) !== 0) continue;
+                if (out.indexOf(indexedKey) !== -1) continue;
+                out.push(indexedKey);
+                added++;
+                if (added >= maxMatches) break;
             }
+            return added;
         }
 
-        if (matchKeys.length === 0 && normKeys.length > 0) {
-            var low = 0, high = normKeys.length - 1, pos = normKeys.length;
-            while (low <= high) {
-                var mid = Math.floor((low + high) / 2);
-                var cmp = compareNormalizedKeys(normKeys[mid], normTarget);
-                if (cmp === 0) { pos = mid; break; }
-                if (cmp < 0) low = mid + 1;
-                else high = mid - 1;
+        // v5.17：把“中文单字包含异体字”拆成“功能已开启”与
+        // “当前输入本身就是单字”两个概念。这样多字查询逐级缩短到单字时，
+        // 也会继续进入同一套异体字内部查询，而不会只停在缩短后的原字。
+        var singleInputChar = Array.from(inputWord).length === 1;
+        var autoVariantFeatureEnabled = !embeddedExternalExactOnly &&
+            !!state.config.globalConfig.enableAutoVariantCandidateQuery && isDirectChineseIndex;
+        var autoVariantCandidateEnabled = autoVariantFeatureEnabled && singleInputChar;
+
+        if (autoVariantCandidateEnabled &&
+            (!window._picdicComponentSearch ||
+             typeof window._picdicComponentSearch.getVariants !== 'function') &&
+            !options._componentVariantPrepared) {
+            var componentRetryOptions = {};
+            for (var componentRetryKey in options) {
+                if (Object.prototype.hasOwnProperty.call(options, componentRetryKey)) {
+                    componentRetryOptions[componentRetryKey] = options[componentRetryKey];
+                }
             }
-            if (pos === normKeys.length) pos = low;
-            if (pos < 0) pos = 0;
-            if (pos >= normKeys.length) pos = normKeys.length - 1;
-            matchedNormalized = normKeys[pos];
-            var nearestKeys = keyMap[matchedNormalized] || [];
-            for (var nk = 0; nk < nearestKeys.length; nk++) {
-                matchKeys.push(nearestKeys[nk]);
+            componentRetryOptions._componentVariantPrepared = true;
+            var componentRetryWord = inputWord;
+            var componentRetryDictId = state.ui.currentDictId;
+            showToast('正在准备异体字数据…', 1000);
+            ensurePicDicComponentSearch().then(function() {
+                if (state.ui.currentDictId !== componentRetryDictId || !state.ui.searchInput ||
+                    state.ui.searchInput.value.trim() !== componentRetryWord) return;
+                performSearch(null, componentRetryOptions);
+            }).catch(function(error) {
+                debugLog('⚠️ 异体字模块加载失败，按现有索引继续: ' +
+                    (error && error.message ? error.message : error));
+                if (state.ui.currentDictId !== componentRetryDictId || !state.ui.searchInput ||
+                    state.ui.searchInput.value.trim() !== componentRetryWord) return;
+                performSearch(null, componentRetryOptions);
+            });
+            return;
+        }
+
+        var variantSearchEnabled = !embeddedExternalExactOnly &&
+            !!state.config.globalConfig.enableChineseVariantSearch && isDirectChineseIndex && hasChinese;
+        // 单字自动查异体时，异体结果中的正式汉字也继续走 OpenCC 简繁内部通道。
+        var needsOpenCC = !embeddedExternalExactOnly &&
+            !!state.config.globalConfig.enableChineseVariantSearch &&
+            isDirectChineseIndex && (hasChinese || autoVariantCandidateEnabled);
+        if (needsOpenCC &&
+            (!window.PicDicOpenCC || typeof window.PicDicOpenCC.getCandidates !== 'function') &&
+            !options._openccPrepared) {
+            var retryOptions = {};
+            for (var retryKey in options) {
+                if (Object.prototype.hasOwnProperty.call(options, retryKey)) retryOptions[retryKey] = options[retryKey];
+            }
+            retryOptions._openccPrepared = true;
+            var retryWord = inputWord;
+            var retryDictId = state.ui.currentDictId;
+            ensurePicDicOpenCC().then(function() {
+                if (state.ui.currentDictId !== retryDictId || !state.ui.searchInput ||
+                    state.ui.searchInput.value.trim() !== retryWord) return;
+                performSearch(null, retryOptions);
+            }).catch(function(error) {
+                debugLog('⚠️ 中文简繁模块加载失败，按原索引继续: ' +
+                    (error && error.message ? error.message : error));
+                if (state.ui.currentDictId !== retryDictId || !state.ui.searchInput ||
+                    state.ui.searchInput.value.trim() !== retryWord) return;
+                performSearch(null, retryOptions);
+            });
+            return;
+        }
+
+        // Pure PUA queries normally are exact-only because Unicode/OpenCC cannot infer their meaning.
+        // When “单字自动查异体” is enabled, the 0.9.8.5 relation table is authoritative for that
+        // custom code point, so PUA single characters may also expand to their recorded variants.
+        var privateUseExactOnly = hasPrivateUse && !hasChinese && indexKeyType !== 'pinyin' &&
+            !autoVariantCandidateEnabled;
+        // 多字查询即使本身不是“单字异体查询”，也可能在逐级缩短后变成单字；
+        // 因此只要该功能已开启，就必须走智能逐级流程。
+        var smartChineseOrVariantEnabled = variantSearchEnabled || autoVariantFeatureEnabled;
+
+        if (embeddedExternalExactOnly) {
+            // 宿主 APP 已经通过 StarDict/MDict 词头命中；PicDic_SearchWord 是 Builder
+            // 写入的真实内部索引词头，因此这里只做 exact。这样可以稳定停留在 hot-lite，
+            // 不加载 OpenCC、异体库，也不做前缀或逐级缩短。
+            var externalExactWords = Array.isArray(options.externalExactWords) && options.externalExactWords.length
+                ? options.externalExactWords : [inputWord];
+            for (var exw = 0; exw < externalExactWords.length; exw++) {
+                var exactWord = String(externalExactWords[exw] || '').trim();
+                if (!exactWord || !hasOwnKey(wordToPages, exactWord)) continue;
+                if (matchKeys.indexOf(exactWord) === -1) matchKeys.push(exactWord);
+                if (!exactKey) exactKey = exactWord;
+            }
+            matchedNormalized = exactKey ? normalize(exactKey) : '';
+            resolvedSearchTerm = exactKey || inputWord;
+            debugLog('⚡ Embedded exact-only: ' + (matchKeys.length ? matchKeys.join(' / ') : '无命中'));
+        } else if (privateUseExactOnly) {
+            exactKey = hasOwnKey(wordToPages, inputWord) ? inputWord : null;
+            if (exactKey) {
+                matchKeys.push(exactKey);
+                matchedNormalized = inputWord;
+                debugLog('🔐 PUA 私用区原码精确命中');
+            } else {
+                matchedNormalized = '';
+                debugLog('🔐 PUA 私用区无精确词头，不执行规范化/邻近回退');
+            }
+        } else if (smartChineseOrVariantEnabled) {
+            // 对当前长度执行一轮“内部简繁智能通道”：
+            // 1) 原词精确 + 简繁/一对多异体精确（合并）；
+            // 2) 若无任何精确词头，多字时再找原词/简繁候选的前缀词头；
+            // 3) 若仍无结果，删除末尾一个 Unicode 字符后重复，直到单字。
+            function findSmartChineseMatch(term) {
+                term = String(term || '');
+                if (!term) return null;
+
+                // v5.19：候选来源分层，结果优先级固定为
+                // 原输入精确 > OpenCC 简繁 > 构形库异体（以及异体自身的 OpenCC 扩展）。
+                // 不再把两类候选混在一个数组后按页码排序。
+                var openccCandidatesForTerm = [];
+                var componentDerivedCandidates = [];
+                function addUniqueCandidate(list, candidate) {
+                    candidate = String(candidate || '');
+                    if (!candidate || list.indexOf(candidate) !== -1) return;
+                    list.push(candidate);
+                }
+                function collectOpenCCCandidates(seed, targetList, includeSeed) {
+                    seed = String(seed || '');
+                    if (!seed) return;
+                    if (includeSeed) addUniqueCandidate(targetList, seed);
+                    if (!state.config.globalConfig.enableChineseVariantSearch ||
+                        !containsHanLike(seed) ||
+                        !window.PicDicOpenCC ||
+                        typeof window.PicDicOpenCC.getCandidates !== 'function') return;
+                    try {
+                        var openccCandidates = window.PicDicOpenCC.getCandidates(seed, { maxCandidates: 256 }) || [];
+                        for (var occ = 0; occ < openccCandidates.length; occ++) {
+                            addUniqueCandidate(targetList, openccCandidates[occ]);
+                        }
+                    } catch (variantError) {
+                        debugLog('⚠️ 中文简繁候选生成失败: ' +
+                            (variantError && variantError.message ? variantError.message : variantError));
+                    }
+                }
+
+                // 第一优先层：当前输入的 OpenCC 简繁候选。
+                collectOpenCCCandidates(term, openccCandidatesForTerm, true);
+
+                // 第二优先层：0.9.8.5 异体关系。每个异体仍可继续走 OpenCC，
+                // 但无论页码大小，都排在“原输入的 OpenCC 候选”之后。
+                if (autoVariantFeatureEnabled && Array.from(term).length === 1 &&
+                    window._picdicComponentSearch &&
+                    typeof window._picdicComponentSearch.getVariants === 'function') {
+                    try {
+                        var componentVariants = window._picdicComponentSearch.getVariants(term) || [];
+                        if (componentVariants.length) {
+                            debugLog('🔁 构形库异体候选: "' + term + '" → ' + componentVariants.join(' / '));
+                        }
+                        for (var cv = 0; cv < componentVariants.length; cv++) {
+                            var componentVariant = String(componentVariants[cv] || '');
+                            if (!componentVariant || componentVariant === term) continue;
+                            addUniqueCandidate(componentDerivedCandidates, componentVariant);
+                            collectOpenCCCandidates(componentVariant, componentDerivedCandidates, false);
+                        }
+                    } catch (componentVariantError) {
+                        debugLog('⚠️ 构形库异体候选生成失败: ' +
+                            (componentVariantError && componentVariantError.message ?
+                                componentVariantError.message : componentVariantError));
+                    }
+                }
+
+                var exactMatches = [];
+                var convertedExactMatches = [];
+                var componentExactMatches = [];
+                var termExact = hasOwnKey(wordToPages, term) ? term : null;
+                if (termExact) exactMatches.push(termExact);
+
+                // OpenCC 层先加入。
+                for (var vc = 0; vc < openccCandidatesForTerm.length; vc++) {
+                    var candidateKey = String(openccCandidatesForTerm[vc] || '');
+                    if (!candidateKey || candidateKey === term) continue;
+                    if (hasOwnKey(wordToPages, candidateKey) && exactMatches.indexOf(candidateKey) === -1) {
+                        exactMatches.push(candidateKey);
+                        convertedExactMatches.push(candidateKey);
+                    }
+                }
+                // 再加入异体层。
+                for (var cc = 0; cc < componentDerivedCandidates.length; cc++) {
+                    var componentKey = String(componentDerivedCandidates[cc] || '');
+                    if (!componentKey || componentKey === term) continue;
+                    if (hasOwnKey(wordToPages, componentKey) && exactMatches.indexOf(componentKey) === -1) {
+                        exactMatches.push(componentKey);
+                        componentExactMatches.push(componentKey);
+                    }
+                }
+
+                // 只要本轮有精确词头，就返回“原词 + 所有简繁/异体精确词头”，不再展开前缀。
+                if (exactMatches.length > 0) {
+                    return {
+                        term: term,
+                        type: 'exact',
+                        matchKeys: exactMatches,
+                        exactKey: termExact,
+                        variantCandidateKeys: convertedExactMatches.concat(componentExactMatches),
+                        openccExactKeys: convertedExactMatches.slice(),
+                        componentExactKeys: componentExactMatches.slice(),
+                        variantPrefixKeys: [],
+                        primaryKey: termExact || exactMatches[0]
+                    };
+                }
+
+                // 多字查询无精确词头时，才进行词头前缀匹配。
+                if (Array.from(term).length >= 2) {
+                    var prefixBases = [term];
+                    for (var pb = 0; pb < openccCandidatesForTerm.length; pb++) {
+                        var prefixBase = String(openccCandidatesForTerm[pb] || '');
+                        if (prefixBase && prefixBases.indexOf(prefixBase) === -1) prefixBases.push(prefixBase);
+                    }
+                    var prefixes = [];
+                    for (var pi = 0; pi < prefixBases.length && prefixes.length < 64; pi++) {
+                        appendChinesePrefixKeys(prefixBases[pi], prefixes, 64 - prefixes.length);
+                    }
+                    if (prefixes.length > 0) {
+                        return {
+                            term: term,
+                            type: 'prefix',
+                            matchKeys: prefixes,
+                            exactKey: null,
+                            variantCandidateKeys: [],
+                            openccExactKeys: [],
+                            componentExactKeys: [],
+                            variantPrefixKeys: prefixes.slice(),
+                            primaryKey: prefixes[0]
+                        };
+                    }
+                }
+                return null;
+            }
+
+            var termChars = Array.from(inputWord);
+            var smartMatch = null;
+            while (termChars.length > 0) {
+                var attemptTerm = termChars.join('');
+
+                // v5.17：多字查询一路缩短到单字后，如果开启了“中文单字包含异体字”，
+                // 必须在判断这个单字是否命中之前先准备构形库。否则像“麻将”→“麻”时，
+                // 看到“麻”本身已存在就会提前返回，永远来不及把“痳/蔴/…”等异体并入结果。
+                // 这里只在真的走到单字这一层时才懒加载 0.9.8.5，避免普通多字精确命中也无谓加载大模块。
+                if (termChars.length === 1 && autoVariantFeatureEnabled &&
+                    (!window._picdicComponentSearch ||
+                     typeof window._picdicComponentSearch.getVariants !== 'function') &&
+                    !options._componentVariantPrepared) {
+                    var shortenedVariantRetryOptions = {};
+                    for (var shortenedVariantRetryKey in options) {
+                        if (Object.prototype.hasOwnProperty.call(options, shortenedVariantRetryKey)) {
+                            shortenedVariantRetryOptions[shortenedVariantRetryKey] = options[shortenedVariantRetryKey];
+                        }
+                    }
+                    shortenedVariantRetryOptions._componentVariantPrepared = true;
+                    var shortenedVariantRetryWord = inputWord;
+                    var shortenedVariantRetryDictId = state.ui.currentDictId;
+                    showToast('正在准备“' + attemptTerm + '”的异体字数据…', 1000);
+                    ensurePicDicComponentSearch().then(function() {
+                        if (state.ui.currentDictId !== shortenedVariantRetryDictId || !state.ui.searchInput ||
+                            state.ui.searchInput.value.trim() !== shortenedVariantRetryWord) return;
+                        performSearch(null, shortenedVariantRetryOptions);
+                    }).catch(function(error) {
+                        debugLog('⚠️ 缩短单字异体模块加载失败，按现有索引继续: ' +
+                            (error && error.message ? error.message : error));
+                        if (state.ui.currentDictId !== shortenedVariantRetryDictId || !state.ui.searchInput ||
+                            state.ui.searchInput.value.trim() !== shortenedVariantRetryWord) return;
+                        performSearch(null, shortenedVariantRetryOptions);
+                    });
+                    return;
+                }
+
+                smartMatch = findSmartChineseMatch(attemptTerm);
+                if (smartMatch) {
+                    matchKeys = smartMatch.matchKeys.slice();
+                    exactKey = smartMatch.exactKey;
+                    variantCandidateKeys = smartMatch.variantCandidateKeys.slice();
+                    variantPrefixKeys = smartMatch.variantPrefixKeys.slice();
+                    resolvedSearchTerm = smartMatch.term;
+                    usedShortenedChineseFallback = resolvedSearchTerm !== inputWord;
+                    matchedNormalized = normalize(smartMatch.primaryKey || resolvedSearchTerm);
+                    if (smartMatch.type === 'prefix') {
+                        debugLog('🔎 中文简繁前缀命中: "' + resolvedSearchTerm + '" → ' + matchKeys.join(' / '));
+                    } else {
+                        debugLog('🔁 中文简繁精确合并: "' + resolvedSearchTerm + '" → ' + matchKeys.join(' / '));
+                    }
+                    if (usedShortenedChineseFallback) {
+                        debugLog('↩️ 中文查询逐级缩短: "' + inputWord + '" → "' + resolvedSearchTerm + '"');
+                    }
+                    break;
+                }
+                if (termChars.length === 1) break;
+                termChars.pop();
+            }
+
+            // 中文简繁智能模式下不再使用“排序最近词头”回退。
+            // 缩短到单字仍无精确/异体结果时，最终明确提示未找到。
+        } else {
+            // 未启用中文简繁智能检索时，保留旧的规范化/最近词头行为。
+            exactKey = hasOwnKey(wordToPages, inputWord) ? inputWord : null;
+            if (exactKey) matchKeys.push(exactKey);
+
+            var equivalentKeys = (!hasPrivateUse && normTarget && hasOwnKey(keyMap, normTarget)) ? keyMap[normTarget] : null;
+            if (equivalentKeys) {
+                for (var ek = 0; ek < equivalentKeys.length; ek++) {
+                    if (matchKeys.indexOf(equivalentKeys[ek]) === -1) {
+                        matchKeys.push(equivalentKeys[ek]);
+                    }
+                }
+            }
+
+            if (matchKeys.length === 0 && !hasPrivateUse && normTarget && normKeys.length > 0) {
+                var low = 0, high = normKeys.length - 1, pos = normKeys.length;
+                while (low <= high) {
+                    var mid = Math.floor((low + high) / 2);
+                    var cmp = compareNormalizedKeys(normKeys[mid], normTarget);
+                    if (cmp === 0) { pos = mid; break; }
+                    if (cmp < 0) low = mid + 1;
+                    else high = mid - 1;
+                }
+                if (pos === normKeys.length) pos = low;
+                if (pos < 0) pos = 0;
+                if (pos >= normKeys.length) pos = normKeys.length - 1;
+                matchedNormalized = normKeys[pos];
+                var nearestKeys = keyMap[matchedNormalized] || [];
+                for (var nk = 0; nk < nearestKeys.length; nk++) {
+                    matchKeys.push(nearestKeys[nk]);
+                }
             }
         }
 
         var pgs = [];
         var pageSeen = {};
+        // v5.15：记录“命中页面 → 原始索引词头”。结果页签不再只能看到页码。
+        // 同一页面可能由多个简繁/异体词头共同命中，因此保留去重后的全部原始字符串。
+        var directPageKeyLists = {};
         var primaryPage = null;
+        var primaryMatchKey = exactKey ||
+            (variantCandidateKeys.length ? variantCandidateKeys[0] :
+                (variantPrefixKeys.length ? variantPrefixKeys[0] : null));
         var ords = [];
         var ordMap = {};
         var pageOrdMap = {};
@@ -6303,11 +7245,15 @@ function performSearch(e, options) {
             var matchedKey = matchKeys[mk];
             var keyPages = getPagesForWord(wordToPages, matchedKey);
             if (keyPages) {
-                if (primaryPage === null && exactKey && matchedKey === exactKey && keyPages.length > 0) {
+                if (primaryPage === null && primaryMatchKey && matchedKey === primaryMatchKey && keyPages.length > 0) {
                     primaryPage = keyPages[0];
                 }
                 for (var kp = 0; kp < keyPages.length; kp++) {
                     var pageKey = String(keyPages[kp]);
+                    if (!hasOwnKey(directPageKeyLists, pageKey)) directPageKeyLists[pageKey] = [];
+                    if (directPageKeyLists[pageKey].indexOf(matchedKey) === -1) {
+                        directPageKeyLists[pageKey].push(matchedKey);
+                    }
                     if (!hasOwnKey(pageSeen, pageKey)) {
                         pageSeen[pageKey] = true;
                         pgs.push(keyPages[kp]);
@@ -6325,7 +7271,14 @@ function performSearch(e, options) {
         state.misc._currentSearchOrd = ords.length > 0 ? ords[0] : null;
 
         if (pgs && pgs.length > 0) {
-            pgs.sort(comparePageIds);
+            if (usedShortenedChineseFallback) {
+                showToast('🔎 未找到“' + inputWord + '”的完整匹配，已按“' + resolvedSearchTerm + '”查找');
+            }
+            // v5.19：智能中文/异体结果按候选来源优先级保留页面顺序：
+            // 原词精确 > OpenCC 简繁 > 构形库异体。普通非中文/旧检索仍按页码排序。
+            if (!smartChineseOrVariantEnabled) {
+                pgs.sort(comparePageIds);
+            }
             if (primaryPage !== null) {
                 var primaryIndex = pgs.indexOf(primaryPage);
                 if (primaryIndex > 0) {
@@ -6333,12 +7286,21 @@ function performSearch(e, options) {
                     pgs.unshift(primaryPage);
                 }
             }
+            // 把索引中的原始词头带到结果页签。多个词头共用同一页时以“/”合并。
+            var directPageKeyMap = {};
+            for (var dpk in directPageKeyLists) {
+                if (!hasOwnKey(directPageKeyLists, dpk)) continue;
+                var dpkList = directPageKeyLists[dpk] || [];
+                if (dpkList.length) directPageKeyMap[dpk] = dpkList.join('/');
+            }
+            state.navigation.currentPageKeyMap = directPageKeyMap;
             state.navigation.currentWordPages = pgs;
             state.navigation.currentWordIndex = 0;
             debugLog('📚 匹配规范化键: "' + state.misc._currentSearchNormalized +
                 '"，等价词条=' + state.misc._currentSearchKeys.length +
                 '，页面=' + pgs.length);
             if (isExternalSearch) requestExternalResultAutoFocus(pgs[0]);
+            else requestInternalSearchAutoZoom(pgs[0]);
             displayPage(pgs[0]);
             if (pgs.length > 1) {
                 var preloadCount = state.config.globalConfig.preloadPages || 1;
@@ -6348,7 +7310,7 @@ function performSearch(e, options) {
             saveHistory(inputWord, state.ui.currentDictId);
         } else {
             var suggestMsg = '⚠️ 未找到与 "' + inputWord + '" 对应的页面。';
-            if (!hasChinese && indexKeyType === 'en') {
+            if (!hasChinese && (isEnglishIndexLanguage(indexLanguage) || indexKeyType === 'en')) {
                 suggestMsg += ' 请检查拼写，或尝试输入更简短的词根。';
             } else if (hasChinese && indexKeyType === 'pinyin') {
                 suggestMsg += ' 当前为拼音索引，请检查输入是否正确（如 "zhongguo"）。';
@@ -6363,12 +7325,109 @@ function performSearch(e, options) {
     }
 }
 
+// ==================== 中文词典专用全宋體 fallback ====================
+// 全宋體只在中文词典中应用；切换到英/日/法等非中文词典时立即恢复宿主/系统字体。
+// @font-face 可以常驻，但在非中文词典不挂载 FSung class，也不主动 warm，因此不会实际调用这些字体。
+var _picdicSearchFSungStyleInjected = false;
+var _picdicSearchFSungFiles = [
+    ['PicDic-FSung-p', 'FSung-p.ttf', 'FSung-p'],
+    ['PicDic-FSung-X', 'FSung-X.ttf', 'FSung-X'],
+    ['PicDic-FSung-1', 'FSung-1.ttf', 'FSung-1'],
+    ['PicDic-FSung-2', 'FSung-2.ttf', 'FSung-2'],
+    ['PicDic-FSung-3', 'FSung-3.ttf', 'FSung-3'],
+    ['PicDic-FSung-F', 'FSung-F.ttf', 'FSung-F']
+];
+var _picdicSearchFSungFamily = [
+    '"PicDic-FSung-p"','"PicDic-FSung-X"','"PicDic-FSung-1"',
+    '"PicDic-FSung-2"','"PicDic-FSung-3"','"PicDic-FSung-F"',
+    '"FSung-p"','"FSung-X"','"FSung-1"','"FSung-2"','"FSung-3"','"FSung-F"',
+    'serif'
+].join(',');
+var _picdicSearchFSungExtFamily = [
+    '"PicDic-FSung-X"','"PicDic-FSung-F"','"PicDic-FSung-1"',
+    '"PicDic-FSung-2"','"PicDic-FSung-3"','"PicDic-FSung-p"',
+    '"FSung-X"','"FSung-F"','"FSung-1"','"FSung-2"','"FSung-3"','"FSung-p"',
+    'serif'
+].join(',');
+
+function resolvePicDicSearchFSungBaseUrl() {
+    if (window._picdic_fsung_base_path) {
+        var explicitBase = String(window._picdic_fsung_base_path);
+        return explicitBase.charAt(explicitBase.length - 1) === '/' ? explicitBase : explicitBase + '/';
+    }
+    var src = String(_picdicMainScriptUrl || '').split('#')[0].split('?')[0];
+    var slash = src.lastIndexOf('/');
+    if (slash >= 0) return src.slice(0, slash + 1) + 'fonts/';
+    return 'fonts/';
+}
+
+function ensurePicDicSearchFSungStyle() {
+    if (_picdicSearchFSungStyleInjected) return;
+    _picdicSearchFSungStyleInjected = true;
+    var base = resolvePicDicSearchFSungBaseUrl();
+    var css = [];
+    for (var i = 0; i < _picdicSearchFSungFiles.length; i++) {
+        var item = _picdicSearchFSungFiles[i];
+        var url = String(base + item[1]).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        css.push('@font-face{font-family:"' + item[0] + '";src:local("' + item[2] + '"),url("' + url + '") format("truetype");font-style:normal;font-weight:normal;font-display:swap;}');
+    }
+    css.push('.picdic-search-fsung{font-family:' + _picdicSearchFSungFamily + ' !important;}');
+    css.push('.picdic-search-fsung.picdic-search-fsung-ext{font-family:' + _picdicSearchFSungExtFamily + ' !important;}');
+    var style = document.createElement('style');
+    style.id = 'picdic-search-fsung-style';
+    style.textContent = css.join('');
+    (document.head || document.documentElement).appendChild(style);
+}
+
+function shouldUsePicDicFSungForActiveDictionary() {
+    var lang = getActiveIndexLanguage();
+    // 已明确标注语言时，只允许中文语言使用 FSung。
+    // 对早期未填写 index_language 的旧中文词典保持兼容：语言未知时仍沿用原有行为。
+    if (lang) return isChineseIndexLanguage(lang);
+    return true;
+}
+
+function updatePicDicSearchFSungMode(input) {
+    if (!input) return;
+    var enabled = shouldUsePicDicFSungForActiveDictionary();
+    input.classList.toggle('picdic-search-fsung', enabled);
+    if (!enabled) {
+        input.classList.remove('picdic-search-fsung-ext');
+        return;
+    }
+    var text = String(input.value || '');
+    var useExt = false;
+    for (const ch of text) {
+        if (ch.codePointAt(0) > 0xFFFF) { useExt = true; break; }
+    }
+    input.classList.toggle('picdic-search-fsung-ext', useExt);
+}
+
+function warmPicDicSearchFSung(text) {
+    // 非中文词典不主动调用/预热全宋體。
+    if (!shouldUsePicDicFSungForActiveDictionary()) return;
+    // 对补充平面汉字优先预热 FSung-X；普通汉字优先 FSung-p。其余分片由 CSS fallback 按缺字继续匹配。
+    try {
+        if (!document.fonts || typeof document.fonts.load !== 'function') return;
+        var sample = Array.from(String(text || '')).slice(0, 32).join('');
+        if (!sample) return;
+        var hasSupplementary = false;
+        for (const ch of sample) {
+            if (ch.codePointAt(0) > 0xFFFF) { hasSupplementary = true; break; }
+        }
+        var family = hasSupplementary ? 'PicDic-FSung-X' : 'PicDic-FSung-p';
+        try { document.fonts.load('24px "' + family + '"', sample).catch(function(){}); } catch (e) {}
+    } catch (e) {}
+}
+
 // ==================== UI 构建 ====================
 function buildUI() {
     var searchBox = document.getElementById('searchBox');
     if (!searchBox) return;
     var input = document.getElementById('searchInput');
     if (!input) return;
+    ensurePicDicSearchFSungStyle();
+    updatePicDicSearchFSungMode(input);
     searchBox.innerHTML = '';
     var wrapper = document.createElement('div');
     wrapper.className = 'picdic-toolbar-wrapper';
@@ -6383,6 +7442,16 @@ function buildUI() {
     wrapper.appendChild(leftContainer);
     var btnGroup = document.createElement('div');
     btnGroup.className = 'toolbar-group';
+    var componentBtn = document.createElement('button');
+    componentBtn.textContent = '部';
+    componentBtn.className = 'toolbar-btn';
+    componentBtn.title = '中文部件检索';
+    componentBtn.setAttribute('aria-label', '中文部件检索');
+    componentBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        e.preventDefault();
+        openPicDicComponentSearch();
+    });
     var histBtn = document.createElement('button');
     histBtn.textContent = '📜';
     histBtn.className = 'toolbar-btn';
@@ -6407,6 +7476,7 @@ function buildUI() {
         e.preventDefault();
         showDictListMenu();
     });
+    btnGroup.appendChild(componentBtn);
     btnGroup.appendChild(histBtn);
     btnGroup.appendChild(configBtn);
     btnGroup.appendChild(dictBtn);
@@ -6415,30 +7485,335 @@ function buildUI() {
     state.ui.searchInput = input;
     input.addEventListener('keydown', function(e) {
         if (e.key === 'Enter' && !e.isComposing) {
-            performSearch(e);
+            // v5.2：Enter/IME“确认”即视为提交搜索。
+            // 先阻止表单/宿主继续处理，再取消尚未触发的防抖搜索并主动 blur，
+            // 让 Android 输入法及时收起，避免 focus 保留导致可视区域和高亮几何滞后。
+            e.preventDefault();
+            e.stopPropagation();
+            if (state.misc._searchDebounceTimer) {
+                clearTimeout(state.misc._searchDebounceTimer);
+                state.misc._searchDebounceTimer = null;
+            }
+            if (document.activeElement === input && typeof input.blur === 'function') {
+                input.blur();
+            }
+            setTimeout(function() {
+                performSearch();
+            }, 0);
+            // 某些 Android WebView 的 visual viewport 会在键盘动画结束后才稳定，
+            // 再做两次强制高亮 settle，既覆盖短动画也覆盖较慢输入法。
+            setTimeout(scheduleAnnotationRedrawAfterInteraction, 120);
+            setTimeout(scheduleAnnotationRedrawAfterInteraction, 320);
         }
     });
     input.addEventListener('input', function() {
+        updatePicDicSearchFSungMode(input);
+        warmPicDicSearchFSung(input.value);
         if (!state.config.globalConfig.enableInputDebounce) return;
         if (state.misc._searchDebounceTimer) clearTimeout(state.misc._searchDebounceTimer);
         state.misc._searchDebounceTimer = setTimeout(function() {
             performSearch();
         }, state.config.globalConfig.inputDebounceDelay || 300);
     });
-    function selectAllSearchInput() {
+    function selectAllSearchInputByIndexLanguage() {
+        // v5.18：搜索框的点按行为跟随“当前词典索引语言”。
+        // 中文索引保持浏览器/WebView 原生文本框行为：点到哪里，光标就落到哪里；
+        // 其他语言仍维持 PicDic 既有的“一点即全选”，便于直接覆盖输入。
+        var lang = getActiveIndexLanguage();
+        if (isChineseIndexLanguage(lang)) return;
         var el = input;
         setTimeout(function() {
+            // 延迟到原生 click/caret 处理结束后再全选，确保非中文词典行为稳定。
             if (document.activeElement === el && typeof el.select === 'function') {
                 el.select();
             }
         }, 0);
     }
-    input.addEventListener('focus', selectAllSearchInput);
-    input.addEventListener('click', selectAllSearchInput);
+    input.addEventListener('focus', selectAllSearchInputByIndexLanguage);
+    input.addEventListener('click', selectAllSearchInputByIndexLanguage);
     if (state.misc._savedWord) {
         input.value = state.misc._savedWord;
+        updatePicDicSearchFSungMode(input);
+        warmPicDicSearchFSung(state.misc._savedWord);
     }
     updatePageInfo(null);
+}
+
+// ==================== 中文简繁智能检索（OpenCC 数据兼容层，按需加载） ====================
+var _picdicOpenCCLoadPromise = null;
+
+function getPicDicOpenCCCandidateUrls() {
+    var urls = [];
+    function add(url) {
+        if (!url) return;
+        url = String(url);
+        if (urls.indexOf(url) === -1) urls.push(url);
+    }
+
+    add(window._picdic_opencc_path);
+    try {
+        var scripts = document.getElementsByTagName('script');
+        for (var i = scripts.length - 1; i >= 0; i--) {
+            var src = scripts[i].src || scripts[i].getAttribute('src') || '';
+            if (!src) continue;
+            var clean = src.split('#')[0].split('?')[0];
+            if (/\/PicDic_search\.js$/i.test(clean)) {
+                add(clean.replace(/PicDic_search\.js$/i, 'PicDic_opencc.js'));
+                break;
+            }
+        }
+    } catch (e) {}
+
+    if (_env.isGoldenDictAndroid) {
+        add('file:///sdcard/GoldenDict/PicDic/PicDic_opencc.js');
+        add('file:///storage/emulated/0/GoldenDict/PicDic/PicDic_opencc.js');
+    } else {
+        add(UrlBuilder.getFileUrl('PicDic_opencc.js'));
+    }
+    add('PicDic_opencc.js');
+    if (_env.isMDictAndroid) add('/PicDic_opencc.js');
+    return urls;
+}
+
+function ensurePicDicOpenCC() {
+    if (window.PicDicOpenCC && typeof window.PicDicOpenCC.getCandidates === 'function') {
+        return Promise.resolve(window.PicDicOpenCC);
+    }
+    if (_picdicOpenCCLoadPromise) return _picdicOpenCCLoadPromise;
+
+    _picdicOpenCCLoadPromise = new Promise(function(resolve, reject) {
+        var urls = getPicDicOpenCCCandidateUrls();
+        var attempt = 0;
+        function tryNext() {
+            if (window.PicDicOpenCC && typeof window.PicDicOpenCC.getCandidates === 'function') {
+                resolve(window.PicDicOpenCC);
+                return;
+            }
+            if (attempt >= urls.length) {
+                reject(new Error('PicDic_opencc.js 加载失败（已尝试 ' + urls.length + ' 个路径）'));
+                return;
+            }
+            var url = urls[attempt++];
+            var script = document.createElement('script');
+            script.src = url;
+            script.onload = function() {
+                if (window.PicDicOpenCC && typeof window.PicDicOpenCC.getCandidates === 'function') {
+                    window._picdic_opencc_loaded_from = url;
+                    resolve(window.PicDicOpenCC);
+                } else {
+                    tryNext();
+                }
+            };
+            script.onerror = tryNext;
+            (document.head || document.documentElement).appendChild(script);
+        }
+        tryNext();
+    }).catch(function(err) {
+        _picdicOpenCCLoadPromise = null;
+        throw err;
+    });
+    return _picdicOpenCCLoadPromise;
+}
+
+// ==================== 中文部件检索按需模块 ====================
+var _picdicComponentLoadPromise = null;
+
+function isComponentSearchSupportedForCurrentDictionary() {
+    return isChineseIndexLanguage(getActiveIndexLanguage()) &&
+           getActiveIndexKeyType() !== 'pinyin';
+}
+
+function prepareDictionaryForComponentSearch() {
+    if (!state.cache.dictionaryIndex) return Promise.resolve(false);
+    if (state.cache.dictionaryIndex._picdicHotLite) {
+        return promoteHotLiteToFullIndex(state.ui.currentDictId).then(function() {
+            cacheNormalizedKeys();
+            return true;
+        });
+    }
+    if (!state.cache._searchCacheReady ||
+        state.cache._searchCacheDictId !== state.ui.currentDictId) {
+        cacheNormalizedKeys();
+    }
+    return Promise.resolve(true);
+}
+
+function componentCandidateExistsInCurrentDictionary(word) {
+    var indexData = state.cache.dictionaryIndex;
+    if (!indexData || !indexData.wordToPages || !word) return false;
+    if (hasOwnKey(indexData.wordToPages, word)) return true;
+
+    var normalized = normalize(word);
+    var keyMap = state.cache._keyMap || {};
+    var equivalent = hasOwnKey(keyMap, normalized) ? keyMap[normalized] : null;
+    return !!(equivalent && equivalent.length);
+}
+
+function buildPicDicComponentBridge() {
+    return {
+        isSupported: isComponentSearchSupportedForCurrentDictionary,
+        getDictionaryName: function() {
+            var dict = window.picdic_dictList && window.picdic_dictList[state.ui.currentDictId];
+            return dict && dict.name ? dict.name : (state.ui.currentDictId || '');
+        },
+        hasCandidate: componentCandidateExistsInCurrentDictionary,
+        searchWord: function(word) {
+            word = String(word || '').trim();
+            if (!word) return;
+            if (!state.ui.searchInput) return;
+            state.ui.searchInput.value = word;
+            state.misc._savedWord = word;
+            performSearch(null, { component: true });
+        },
+        getAutoVariantCandidateQuery: function() {
+            return !!(state.config && state.config.globalConfig &&
+                state.config.globalConfig.enableAutoVariantCandidateQuery);
+        },
+        setAutoVariantCandidateQuery: function(value) {
+            value = !!value;
+            if (state.config && state.config.globalConfig) {
+                state.config.globalConfig.enableAutoVariantCandidateQuery = value;
+            }
+            if (state.configStore && state.configStore.data && state.configStore.data.globalConfig) {
+                state.configStore.data.globalConfig.enableAutoVariantCandidateQuery = value;
+                try { state.configStore.save(); } catch (e) {}
+            }
+            debugLog('⚙️ 单字自动查异体: ' + (value ? '开启' : '关闭'));
+        },
+        toast: showToast,
+        debugLog: debugLog
+    };
+}
+
+function instantiatePicDicComponentSearch() {
+    if (window._picdicComponentSearch &&
+        typeof window._picdicComponentSearch.open === 'function') {
+        return window._picdicComponentSearch;
+    }
+    if (typeof window._picdicCreateComponentSearch !== 'function') return null;
+
+    window._picdicComponentBridge = buildPicDicComponentBridge();
+    var module = window._picdicCreateComponentSearch(window._picdicComponentBridge);
+    if (!module) throw new Error('部件检索模块 factory 返回空对象');
+    window._picdicComponentSearch = module;
+    return module;
+}
+
+function getPicDicComponentCandidateUrls() {
+    var urls = [];
+    function add(url) {
+        if (!url) return;
+        url = String(url);
+        if (urls.indexOf(url) === -1) urls.push(url);
+    }
+
+    add(window._picdic_component_search_path);
+
+    try {
+        var scripts = document.getElementsByTagName('script');
+        for (var i = scripts.length - 1; i >= 0; i--) {
+            var src = scripts[i].src || scripts[i].getAttribute('src') || '';
+            if (!src) continue;
+            var clean = src.split('#')[0].split('?')[0];
+            if (/\/PicDic_search\.js$/i.test(clean)) {
+                add(clean.replace(/PicDic_search\.js$/i, 'PicDic_component_search.js'));
+                break;
+            }
+        }
+    } catch (e) {}
+
+    if (_env.isGoldenDictAndroid) {
+        add('file:///sdcard/GoldenDict/PicDic/PicDic_component_search.js');
+        add('file:///storage/emulated/0/GoldenDict/PicDic/PicDic_component_search.js');
+    } else {
+        add(UrlBuilder.getFileUrl('PicDic_component_search.js'));
+    }
+
+    add('PicDic_component_search.js');
+    if (_env.isMDictAndroid) add('/PicDic_component_search.js');
+    return urls;
+}
+
+function ensurePicDicComponentSearch() {
+    try {
+        var existing = instantiatePicDicComponentSearch();
+        if (existing) return Promise.resolve(existing);
+    } catch (e) {
+        return Promise.reject(e);
+    }
+
+    if (_picdicComponentLoadPromise) return _picdicComponentLoadPromise;
+
+    _picdicComponentLoadPromise = new Promise(function(resolve, reject) {
+        var urls = getPicDicComponentCandidateUrls();
+        var attempt = 0;
+        var failures = [];
+
+        function tryNext() {
+            var existing = instantiatePicDicComponentSearch();
+            if (existing) {
+                resolve(existing);
+                return;
+            }
+            if (attempt >= urls.length) {
+                reject(new Error('PicDic_component_search.js 加载失败（已尝试 ' + urls.length + ' 个路径）'));
+                return;
+            }
+            var url = urls[attempt++];
+            var script = document.createElement('script');
+            script.src = url;
+            script.onload = function() {
+                try {
+                    var loaded = instantiatePicDicComponentSearch();
+                    if (loaded) {
+                        window._picdic_component_loaded_from = url;
+                        resolve(loaded);
+                        return;
+                    }
+                    failures.push(url + ': loaded_without_factory');
+                } catch (err) {
+                    failures.push(url + ': ' + (err && err.message ? err.message : err));
+                }
+                tryNext();
+            };
+            script.onerror = function() {
+                failures.push(url + ': script_error');
+                tryNext();
+            };
+            (document.head || document.documentElement).appendChild(script);
+        }
+        tryNext();
+    }).catch(function(err) {
+        _picdicComponentLoadPromise = null;
+        throw err;
+    });
+
+    return _picdicComponentLoadPromise;
+}
+
+function openPicDicComponentSearch() {
+    if (!isComponentSearchSupportedForCurrentDictionary()) {
+        showToast('当前词典不是中文直索引，部件检索仅适用于中文直索引词典。');
+        return;
+    }
+
+    showToast('正在准备部件检索…', 1000);
+    prepareDictionaryForComponentSearch().then(function() {
+        return ensurePicDicComponentSearch();
+    }).then(function(module) {
+        // 每次打开刷新 bridge，以免切换词典后仍引用旧状态。
+        if (module && typeof module.setBridge === 'function') {
+            module.setBridge(buildPicDicComponentBridge());
+        }
+        if (!module || typeof module.open !== 'function') {
+            throw new Error('部件检索模块没有 open()');
+        }
+        module.open();
+    }).catch(function(err) {
+        var message = err && err.message ? err.message : String(err || '未知错误');
+        debugLog('❌ 部件检索模块失败: ' + message);
+        showToast('部件检索加载失败：' + message);
+    });
 }
 
 // ==================== 按需 UI 模块 ====================
@@ -6480,6 +7855,8 @@ function buildPicDicUiBridge() {
             matchFilterPreset: matchFilterPreset,
             matchLightBgPreset: matchLightBgPreset,
             normalizeResourceId: normalizeResourceId,
+            navigateToHostHeadword: navigateToHostHeadword,
+            navigateToInternalHeadword: navigateToInternalHeadword,
             performSearch: performSearch,
             replaceDictSettings: replaceDictSettings,
             sanitizeCSSValue: sanitizeCSSValue,
@@ -6776,23 +8153,31 @@ function init() {
 	    console.error('[PicDic Unhandled Rejection]', e.reason);
 	});
 	window.addEventListener('resize', function() {
-	    if (_env.isMDictAndroid && state.layout.isExpanded) {
-	        return;
-	    }
-
-	    if (state.layout.isExpanded && state.interaction.wrapper) {
-	        var toolbar = document.querySelector('.picdic-toolbar-wrapper');
-	        var toolbarHeight = toolbar ? toolbar.offsetHeight : 0;
-	        var margin = 10;
-	        var availableHeight = window.innerHeight - toolbarHeight - margin;
-	        if (availableHeight < 200) availableHeight = 200;
-	        state.interaction.wrapper.style.height = availableHeight + 'px';
-	        state.layout.expandedHeight = availableHeight;
-	        if (state.interaction.scale > 1.01) {
-	            constrainTransform();
+	    // v5.2：MDict Android 展开模式虽然不在这里改 wrapper 高度，
+	    // 但软键盘收起仍会触发 viewport 变化，因此不能直接 return 而跳过高亮刷新。
+	    if (!(_env.isMDictAndroid && state.layout.isExpanded)) {
+	        if (state.layout.isExpanded && state.interaction.wrapper) {
+	            var toolbar = document.querySelector('.picdic-toolbar-wrapper');
+	            var toolbarHeight = toolbar ? toolbar.offsetHeight : 0;
+	            var margin = 10;
+	            var availableHeight = window.innerHeight - toolbarHeight - margin;
+	            if (availableHeight < 200) availableHeight = 200;
+	            state.interaction.wrapper.style.height = availableHeight + 'px';
+	            state.layout.expandedHeight = availableHeight;
+	            if (state.interaction.scale > 1.01) {
+	                constrainTransform();
+	            }
 	        }
 	    }
+	    scheduleAnnotationRedrawAfterInteraction();
 	});
+
+	// Android 输入法更常只改变 visualViewport；单独监听可比 window.resize 更可靠。
+	if (window.visualViewport && typeof window.visualViewport.addEventListener === 'function') {
+	    window.visualViewport.addEventListener('resize', function() {
+	        scheduleAnnotationRedrawAfterInteraction();
+	    });
+	}
 
     state.configStore = new ConfigStore();
     state.historyStore = new HistoryStore();
@@ -6860,9 +8245,7 @@ async function afterConfigReady() {
         }
     }
 
-if (_initialExternalWord &&
-    !state.misc._pendingMdictJumpRequest &&
-    !_picdicEarlyIsStandaloneMainEntry) {
+if (_initialExternalWord && !state.misc._pendingMdictJumpRequest) {
     state.misc._savedWord = _initialExternalWord;
     state.misc._autoSearch = true;
     debugLog('📥 检测到外部词条: ' + _initialExternalWord);
@@ -6870,8 +8253,6 @@ if (_initialExternalWord &&
         debugLog('📥 外部词典 ID: ' + _initialExternalDictId);
         state._pendingDictId = _initialExternalDictId;
     }
-} else if (_picdicEarlyIsStandaloneMainEntry) {
-    debugLog('📖 检测到 PicDic 主入口，按默认词典/默认页面初始化');
 }
 
     state.configManager = new ConfigManager(state.configStore);
@@ -6934,6 +8315,8 @@ if (_initialExternalWord &&
         if (targetDictId) {
             await ensureDictIframe(targetDictId);
         }
+        // 初始词典加载完成后按 index_language 决定是否启用全宋體。
+        updatePicDicSearchFSungMode(state.ui.searchInput);
 
         if (_picdicEmbeddedMode) {
             window._picdic_embedded_ready = true;
@@ -6995,10 +8378,6 @@ if (state.misc._savedWord && state.misc._autoSearch) {
 }
 
         debugLog('✅ 初始化完成，当前词典: ' + state.ui.currentDictId);
-
-        // 独立 PicDic 主入口 / 无外部查询时，明确显示用户配置的默认页。
-        // 原代码只完成索引加载并 stabilize，result 区域并不会自动 render。
-        showConfiguredDefaultPage();
         stabilizePicDic();
     } catch (err) {
         if (_picdicEmbeddedMode) {

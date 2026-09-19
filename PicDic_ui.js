@@ -40,6 +40,8 @@ var matchDarkBgPreset = core.matchDarkBgPreset;
 var matchFilterPreset = core.matchFilterPreset;
 var matchLightBgPreset = core.matchLightBgPreset;
 var normalizeResourceId = core.normalizeResourceId;
+var navigateToHostHeadword = core.navigateToHostHeadword;
+var navigateToInternalHeadword = core.navigateToInternalHeadword;
 var performSearch = core.performSearch;
 var replaceDictSettings = core.replaceDictSettings;
 var sanitizeCSSValue = core.sanitizeCSSValue;
@@ -60,6 +62,106 @@ function showHistoryPanel() {
         showToast('暂无历史记录');
         return;
     }
+
+    // v5.20：历史记录支持「当前词典 / 全部 / 语言」三级筛选。
+    // 默认优先显示当前词典；若当前词典从未查询过，则回退到“全部”。
+    var currentDictId = state.ui.currentDictId || '';
+    var dictList = window.picdic_dictList || {};
+
+    function getDictInfo(dictId) {
+        return dictList && dictList[dictId] ? dictList[dictId] : null;
+    }
+    function getDictName(dictId) {
+        var dict = getDictInfo(dictId);
+        return dict && dict.name ? dict.name : (dictId || '未知词典');
+    }
+    function getLanguagePair(dictId) {
+        var dict = getDictInfo(dictId);
+        if (!dict) return 'unknown→unknown';
+        var from = String(dict.index_language || 'eng').trim() || 'eng';
+        var to = String(dict.contents_language || 'eng').trim() || 'eng';
+        return from + '→' + to;
+    }
+    function getLanguagePairLabel(pair) {
+        return pair === 'unknown→unknown' ? '未知语言' : pair;
+    }
+    function hasCurrentDictHistory() {
+        if (!currentDictId) return false;
+        for (var i = 0; i < history.length; i++) {
+            if (history[i].dictId === currentDictId) return true;
+        }
+        return false;
+    }
+    function getLanguagePairsFromHistory() {
+        var counts = {};
+        history.forEach(function(item) {
+            var pair = getLanguagePair(item.dictId);
+            counts[pair] = (counts[pair] || 0) + 1;
+        });
+        return Object.keys(counts).sort(function(a, b) {
+            var currentPair = currentDictId ? getLanguagePair(currentDictId) : '';
+            if (a === currentPair && b !== currentPair) return -1;
+            if (b === currentPair && a !== currentPair) return 1;
+            return a.localeCompare(b);
+        }).map(function(pair) {
+            return { pair: pair, count: counts[pair] };
+        });
+    }
+
+    var initialMode = hasCurrentDictHistory() ? 'current' : 'all';
+    var languagePairs = getLanguagePairsFromHistory();
+    var currentPair = currentDictId ? getLanguagePair(currentDictId) : '';
+    var initialPair = currentPair;
+    if (!languagePairs.some(function(x) { return x.pair === initialPair; })) {
+        initialPair = languagePairs.length ? languagePairs[0].pair : 'unknown→unknown';
+    }
+    var filterState = {
+        mode: initialMode,
+        languagePair: initialPair
+    };
+
+    function getFilteredHistory() {
+        var all = state.historyStore ? state.historyStore.getAll() : [];
+        var indexed = all.map(function(item, index) {
+            return { item: item, index: index };
+        });
+        var result;
+        if (filterState.mode === 'current') {
+            result = indexed.filter(function(row) {
+                return row.item.dictId === currentDictId;
+            });
+        } else if (filterState.mode === 'language') {
+            result = indexed.filter(function(row) {
+                return getLanguagePair(row.item.dictId) === filterState.languagePair;
+            });
+        } else {
+            result = indexed;
+        }
+
+        // “全部”与“语言”模式下，当前词典永远置顶；各优先级内部仍按原来的最近查询顺序。
+        if (filterState.mode !== 'current' && currentDictId) {
+            result.sort(function(a, b) {
+                var ap = a.item.dictId === currentDictId ? 0 : 1;
+                var bp = b.item.dictId === currentDictId ? 0 : 1;
+                if (ap !== bp) return ap - bp;
+                return a.index - b.index;
+            });
+        }
+        return result.map(function(row) { return row.item; });
+    }
+
+    var ui = {
+        content: null,
+        filterBar: null,
+        languageRow: null,
+        languageSelect: null,
+        summary: null,
+        listHost: null,
+        currentBtn: null,
+        allBtn: null,
+        languageBtn: null
+    };
+
     var exportBtn = document.createElement('button');
     exportBtn.className = 'picdic-title-action-btn to_Copy';
     exportBtn.textContent = '📋 导出';
@@ -69,6 +171,7 @@ function showHistoryPanel() {
             showToast('历史为空');
             return;
         }
+        // 保持旧行为：导出全部历史中的去重词条，不受当前筛选影响。
         var map = {};
         state.historyStore.getAll().forEach(function(item) {
             var word = item.word;
@@ -89,139 +192,322 @@ function showHistoryPanel() {
             fallbackCopy(text);
         }
     });
+
     var clearBtn = document.createElement('button');
     clearBtn.className = 'picdic-title-action-btn to_ClearHistory';
     clearBtn.textContent = '🗑️ 清空';
+    clearBtn.title = '清空全部查询历史';
     clearBtn.addEventListener('click', function(e) {
         e.stopPropagation();
         clearHistory();
     });
-    var popup = createPopup(
-        '📜 查询历史（' + history.length + '条）',
-        'picdic-history-panel',
-        function(content) {
+
+    function updateFilterButtons() {
+        var all = state.historyStore ? state.historyStore.getAll() : [];
+        var currentCount = 0;
+        var languageCount = 0;
+        for (var i = 0; i < all.length; i++) {
+            if (all[i].dictId === currentDictId) currentCount++;
+            if (getLanguagePair(all[i].dictId) === filterState.languagePair) languageCount++;
+        }
+        if (ui.currentBtn) {
+            ui.currentBtn.textContent = '当前词典' + (currentCount ? ' ' + currentCount : '');
+            ui.currentBtn.classList.toggle('active', filterState.mode === 'current');
+            ui.currentBtn.setAttribute('aria-pressed', filterState.mode === 'current' ? 'true' : 'false');
+            ui.currentBtn.title = currentDictId ? getDictName(currentDictId) : '当前无词典';
+        }
+        if (ui.allBtn) {
+            ui.allBtn.textContent = '全部 ' + all.length;
+            ui.allBtn.classList.toggle('active', filterState.mode === 'all');
+            ui.allBtn.setAttribute('aria-pressed', filterState.mode === 'all' ? 'true' : 'false');
+        }
+        if (ui.languageBtn) {
+            ui.languageBtn.textContent = '语言' + (filterState.mode === 'language' && languageCount ? ' ' + languageCount : '');
+            ui.languageBtn.classList.toggle('active', filterState.mode === 'language');
+            ui.languageBtn.setAttribute('aria-pressed', filterState.mode === 'language' ? 'true' : 'false');
+        }
+        if (ui.languageRow) {
+            ui.languageRow.style.display = filterState.mode === 'language' ? 'flex' : 'none';
+        }
+    }
+
+    function updateLanguageSelect() {
+        if (!ui.languageSelect) return;
+        var pairs = getLanguagePairsFromHistory();
+        languagePairs = pairs;
+        var stillExists = pairs.some(function(x) { return x.pair === filterState.languagePair; });
+        if (!stillExists && pairs.length) filterState.languagePair = pairs[0].pair;
+        ui.languageSelect.innerHTML = '';
+        pairs.forEach(function(info) {
+            var opt = document.createElement('option');
+            opt.value = info.pair;
+            opt.textContent = getLanguagePairLabel(info.pair) + ' · ' + info.count;
+            if (info.pair === filterState.languagePair) opt.selected = true;
+            ui.languageSelect.appendChild(opt);
+        });
+    }
+
+    function updatePanelTitle() {
+        if (!popup || !popup.panel) return;
+        var titleEl = popup.panel.querySelector('.picdic-popup-title');
+        if (!titleEl) return;
+        // 标题固定简洁显示；筛选范围与数量只在第二行筛选按钮中呈现。
+        titleEl.textContent = '📜 查询历史';
+    }
+
+    function deleteHistoryItem(item) {
+        if (!state.historyStore) return;
+        state.historyStore.remove(item.word, item.dictId);
+        history = state.historyStore.getAll();
+        if (history.length === 0) {
+            popup.close();
+            showToast('历史已清空');
+            return;
+        }
+        updateLanguageSelect();
+        renderHistoryList();
+    }
+
+    // 历史词头可能包含 CJK 扩展区/补充平面/PUA 字符；
+    // GoldenDict WebView 的系统字体经常没有这些字形，因此历史列表按字符内容启用 FSung fallback。
+    function classifyHistoryWordFont(text) {
+        var hasHanOrPua = false;
+        var preferExtended = false;
+        var chars = Array.from(String(text || ''));
+        for (var i = 0; i < chars.length; i++) {
+            var cp = chars[i].codePointAt(0);
+            var isHan =
+                (cp >= 0x3400 && cp <= 0x4DBF) ||
+                (cp >= 0x4E00 && cp <= 0x9FFF) ||
+                (cp >= 0xF900 && cp <= 0xFAFF) ||
+                (cp >= 0x20000 && cp <= 0x323AF) ||
+                (cp >= 0x2F800 && cp <= 0x2FA1F);
+            var isPua =
+                (cp >= 0xE000 && cp <= 0xF8FF) ||
+                (cp >= 0xF0000 && cp <= 0xFFFFD) ||
+                (cp >= 0x100000 && cp <= 0x10FFFD);
+            if (isHan || isPua) hasHanOrPua = true;
+            if (cp > 0xFFFF || isPua) preferExtended = true;
+        }
+        return { enabled: hasHanOrPua, extended: preferExtended };
+    }
+
+    function warmHistoryWordFont(text, extended) {
+        try {
+            if (!document.fonts || typeof document.fonts.load !== 'function') return;
+            var sample = Array.from(String(text || '')).slice(0, 32).join('');
+            if (!sample) return;
+            var families = extended ? ['PicDic-FSung-X', 'PicDic-FSung-F'] : ['PicDic-FSung-p'];
+            families.forEach(function(family) {
+                try { document.fonts.load('24px "' + family + '"', sample).catch(function(){}); } catch (e) {}
+            });
+        } catch (e) {}
+    }
+
+    function createHistoryListItem(item) {
+        var li = document.createElement('li');
+        li.className = 'picdic-history-item';
+        li.setAttribute('data-dictid', item.dictId || '');
+        li.setAttribute('data-word', item.word);
+        if (item.dictId === currentDictId) {
+            li.setAttribute('data-current-dict', '1');
+            // 仅做轻微提示，不改变原有列表视觉体系。
+            li.style.borderLeft = '3px solid rgba(70,120,210,.55)';
+        }
+
+        var jumpIcon = document.createElement('span');
+        jumpIcon.className = 'picdic-lookup-in-GD-img';
+        jumpIcon.textContent = '📖';
+        jumpIcon.title = '在 GoldenDict 中查询此词';
+        jumpIcon.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var word = item.word;
+            if (!word) return;
+            // 📖 始终代表宿主 App 查询；不受“内部跳转”全局开关影响。
+            navigateToHostHeadword(word, item.dictId);
+        });
+        li.appendChild(jumpIcon);
+
+        var wordSpan = document.createElement('span');
+        wordSpan.className = 'picdic-history-word';
+        wordSpan.textContent = item.word;
+        var historyFont = classifyHistoryWordFont(item.word);
+        if (historyFont.enabled) {
+            wordSpan.classList.add('picdic-history-fsung');
+            if (historyFont.extended) wordSpan.classList.add('picdic-history-fsung-ext');
+            warmHistoryWordFont(item.word, historyFont.extended);
+        }
+        li.appendChild(wordSpan);
+
+        var rightContainer = document.createElement('div');
+        rightContainer.className = 'picdic-history-right';
+        var leftCol = document.createElement('div');
+        leftCol.style.display = 'flex';
+        leftCol.style.flexDirection = 'column';
+        leftCol.style.alignItems = 'flex-end';
+        leftCol.style.gap = '2px';
+        var dictSpan = document.createElement('span');
+        dictSpan.className = 'picdic-history-dict';
+        dictSpan.textContent = getDictName(item.dictId);
+        leftCol.appendChild(dictSpan);
+        var timeSpan = document.createElement('span');
+        timeSpan.className = 'picdic-history-time';
+        var date = new Date(item.timestamp);
+        var dateStr = date.toLocaleString(undefined, {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        });
+        timeSpan.textContent = dateStr;
+        leftCol.appendChild(timeSpan);
+        rightContainer.appendChild(leftCol);
+
+        var deleteBtn = document.createElement('span');
+        deleteBtn.className = 'picdic-history-delete-btn';
+        deleteBtn.textContent = '✕';
+        deleteBtn.title = '删除此记录';
+        deleteBtn.style.marginLeft = '4px';
+        deleteBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            showConfirm('确认删除', '确定删除 "' + item.word + '" 的历史记录吗？', function() {
+                deleteHistoryItem(item);
+            });
+        });
+        rightContainer.appendChild(deleteBtn);
+        li.appendChild(rightContainer);
+
+        li.addEventListener('click', async function(e) {
+            if (e.target === jumpIcon || jumpIcon.contains(e.target) ||
+                e.target === deleteBtn || deleteBtn.contains(e.target)) {
+                return;
+            }
+            var targetDictId = this.getAttribute('data-dictid');
+            var targetWord = this.getAttribute('data-word');
+            if (!targetDictId || !targetWord) return;
+            try {
+                var ok = await navigateToInternalHeadword(targetWord, targetDictId);
+                if (ok) popup.close();
+            } catch (err) {
+                showToast('内部跳转失败：' + (err.message || '未知错误'));
+            }
+        });
+        return li;
+    }
+
+    function renderHistoryList() {
+        if (!ui.listHost) return;
+        updateLanguageSelect();
+        updateFilterButtons();
+        var all = state.historyStore ? state.historyStore.getAll() : [];
+        var filtered = getFilteredHistory();
+        ui.listHost.innerHTML = '';
+
+        if (ui.summary) {
+            if (filterState.mode === 'current') {
+                ui.summary.textContent = currentDictId ? '当前：' + getDictName(currentDictId) : '当前无词典';
+            } else if (filterState.mode === 'language') {
+                ui.summary.textContent = '语言：' + getLanguagePairLabel(filterState.languagePair) + '；当前词典记录优先';
+            } else {
+                ui.summary.textContent = '全部历史；当前词典记录优先';
+            }
+        }
+
+        if (!filtered.length) {
+            var empty = document.createElement('div');
+            empty.style.cssText = 'padding:24px 8px;text-align:center;opacity:.62;font-size:13px;';
+            empty.textContent = filterState.mode === 'current' ? '当前词典暂无查询记录' : '当前筛选暂无查询记录';
+            ui.listHost.appendChild(empty);
+        } else {
             var list = document.createElement('ul');
             list.className = 'picdic-popup-list';
-            function deleteHistoryItem(item, liElement) {
-                if (!state.historyStore) return;
-                state.historyStore.remove(item.word, item.dictId);
-                if (liElement && liElement.parentNode) {
-                    liElement.parentNode.removeChild(liElement);
-                }
-                var titleEl = popup.panel.querySelector('.picdic-popup-title');
-                if (titleEl) {
-                    var count = state.historyStore.getAll().length;
-                    titleEl.textContent = '📜 查询历史（' + count + '条）';
-                }
-                if (state.historyStore.getAll().length === 0) {
-                    popup.close();
-                    showToast('历史已清空');
-                }
-            }
-            history.forEach(function(item) {
-                var li = document.createElement('li');
-                li.className = 'picdic-history-item';
-                li.setAttribute('data-dictid', item.dictId || '');
-                li.setAttribute('data-word', item.word);
-
-                var jumpIcon = document.createElement('span');
-                jumpIcon.className = 'picdic-lookup-in-GD-img';
-                jumpIcon.textContent = '📖';
-                jumpIcon.title = '在 GoldenDict 中查询此词';
-			jumpIcon.addEventListener('click', function(e) {
-			    e.stopPropagation();
-			    var word = item.word;
-			    if (!word) return;
-			    var dictId = item.dictId;
-			    var encodedWord = encodeURIComponent(word);
-			    var url;
-
-			    if (_env.isMDictAndroid) {
-			        url = 'mdx://mdict.cn/entry/-1/' + encodedWord;
-			    } else {
-			        var sourceLang = getSourceLangCode(dictId);
-			        var targetLang = -1;
-			        url = 'content://mobi.goldendict.android/article/' + sourceLang + '/' + targetLang + '/' + encodedWord;
-			    }
-
-			    try {
-			        window.location.href = url;
-			    } catch (ex) {
-			        window.open(url, '_self');
-			    }
-			});
-                li.appendChild(jumpIcon);
-
-                var wordSpan = document.createElement('span');
-                wordSpan.className = 'picdic-history-word';
-                wordSpan.textContent = item.word;
-                li.appendChild(wordSpan);
-                var rightContainer = document.createElement('div');
-                rightContainer.className = 'picdic-history-right';
-                var leftCol = document.createElement('div');
-                leftCol.style.display = 'flex';
-                leftCol.style.flexDirection = 'column';
-                leftCol.style.alignItems = 'flex-end';
-                leftCol.style.gap = '2px';
-                var dictSpan = document.createElement('span');
-                dictSpan.className = 'picdic-history-dict';
-                var dictName = item.dictId || '未知词典';
-                if (window.picdic_dictList && window.picdic_dictList[item.dictId]) {
-                    dictName = window.picdic_dictList[item.dictId].name || dictName;
-                }
-                dictSpan.textContent = dictName;
-                leftCol.appendChild(dictSpan);
-                var timeSpan = document.createElement('span');
-                timeSpan.className = 'picdic-history-time';
-                var date = new Date(item.timestamp);
-                var dateStr = date.toLocaleString(undefined, {
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                });
-                timeSpan.textContent = dateStr;
-                leftCol.appendChild(timeSpan);
-                rightContainer.appendChild(leftCol);
-                var deleteBtn = document.createElement('span');
-                deleteBtn.className = 'picdic-history-delete-btn';
-                deleteBtn.textContent = '✕';
-                deleteBtn.title = '删除此记录';
-                deleteBtn.style.marginLeft = '4px';
-                deleteBtn.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    showConfirm('确认删除', '确定删除 "' + item.word + '" 的历史记录吗？', function() {
-                        deleteHistoryItem(item, li);
-                    });
-                });
-                rightContainer.appendChild(deleteBtn);
-                li.appendChild(rightContainer);
-                li.addEventListener('click', async function(e) {
-                    if (e.target === jumpIcon || jumpIcon.contains(e.target) ||
-                        e.target === deleteBtn || deleteBtn.contains(e.target)) {
-                        return;
-                    }
-                    var targetDictId = this.getAttribute('data-dictid');
-                    var targetWord = this.getAttribute('data-word');
-                    if (!targetDictId || !targetWord) return;
-                    try {
-                        if (targetDictId && targetDictId !== state.ui.currentDictId) {
-                            await switchDict(targetDictId);
-                        }
-                        if (state.ui.searchInput) {
-                            state.ui.searchInput.value = targetWord;
-                            performSearch();
-                            popup.close();
-                        }
-                    } catch (err) {
-                        showToast('切换词典失败：' + (err.message || '未知错误'));
-                    }
-                });
-                list.appendChild(li);
+            filtered.forEach(function(item) {
+                list.appendChild(createHistoryListItem(item));
             });
-            content.appendChild(list);
+            ui.listHost.appendChild(list);
+        }
+        updatePanelTitle();
+    }
+
+    var popup = createPopup(
+        '📜 查询历史',
+        'picdic-history-panel',
+        function(content) {
+            ui.content = content;
+
+            var filterBar = document.createElement('div');
+            filterBar.className = 'picdic-history-filter-bar';
+            ui.filterBar = filterBar;
+
+            var currentBtn = document.createElement('button');
+            currentBtn.type = 'button';
+            currentBtn.className = 'picdic-history-filter-btn';
+            currentBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                filterState.mode = 'current';
+                renderHistoryList();
+            });
+            ui.currentBtn = currentBtn;
+            filterBar.appendChild(currentBtn);
+
+            var allBtn = document.createElement('button');
+            allBtn.type = 'button';
+            allBtn.className = 'picdic-history-filter-btn';
+            allBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                filterState.mode = 'all';
+                renderHistoryList();
+            });
+            ui.allBtn = allBtn;
+            filterBar.appendChild(allBtn);
+
+            var languageBtn = document.createElement('button');
+            languageBtn.type = 'button';
+            languageBtn.className = 'picdic-history-filter-btn';
+            languageBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                filterState.mode = 'language';
+                // 首次进入语言模式时优先定位到当前词典的语言对。
+                var pair = currentDictId ? getLanguagePair(currentDictId) : '';
+                if (pair && languagePairs.some(function(x) { return x.pair === pair; })) {
+                    filterState.languagePair = pair;
+                }
+                renderHistoryList();
+            });
+            ui.languageBtn = languageBtn;
+            filterBar.appendChild(languageBtn);
+            content.appendChild(filterBar);
+
+            var languageRow = document.createElement('div');
+            languageRow.className = 'picdic-history-language-row';
+            var languageLabel = document.createElement('span');
+            languageLabel.className = 'picdic-history-language-label';
+            languageLabel.textContent = '语言对';
+            languageRow.appendChild(languageLabel);
+            var languageSelect = document.createElement('select');
+            languageSelect.className = 'picdic-history-language-select';
+            languageSelect.addEventListener('change', function(e) {
+                e.stopPropagation();
+                filterState.languagePair = this.value;
+                renderHistoryList();
+            });
+            ui.languageSelect = languageSelect;
+            languageRow.appendChild(languageSelect);
+            ui.languageRow = languageRow;
+            content.appendChild(languageRow);
+
+            var summary = document.createElement('div');
+            summary.className = 'picdic-history-filter-summary';
+            ui.summary = summary;
+            content.appendChild(summary);
+
+            var listHost = document.createElement('div');
+            listHost.className = 'picdic-history-list-host';
+            ui.listHost = listHost;
+            content.appendChild(listHost);
+
             content.addEventListener('touchmove', function(e) {
                 if (this.scrollHeight > this.clientHeight) {
                     e.stopPropagation();
@@ -234,6 +520,7 @@ function showHistoryPanel() {
         [exportBtn, clearBtn]
     );
     state.historyPopup = popup;
+    renderHistoryList();
 }
 
 // ==================== 词典列表 ====================
@@ -347,6 +634,8 @@ function showDictListMenu() {
             });
             var list = document.createElement('ul');
             list.className = 'picdic-popup-list';
+            // v5.19：词典多时压缩语言对之间的垂直空白。
+            list.style.cssText = 'margin:0;padding:0;list-style:none;';
             var currentId = state.ui.currentDictId;
             var defaultId = state.config.globalConfig.defaultDictId;
             function moveDict(dictId, direction) {
@@ -380,17 +669,36 @@ function showDictListMenu() {
                 popup.close();
                 showDictListMenu();
             }
+            if (!state.config.globalConfig.dictGroupCollapsed ||
+                typeof state.config.globalConfig.dictGroupCollapsed !== 'object') {
+                state.config.globalConfig.dictGroupCollapsed = {};
+            }
+            var collapsedGroups = state.config.globalConfig.dictGroupCollapsed;
+
             groupNames.forEach(function(pair, groupIndex) {
                 var items = groups[pair];
                 var groupContainer = document.createElement('li');
                 groupContainer.className = 'picdic-dict-group-container';
+                // 语言对之间只轻微分开；覆盖宿主样式可能带来的大 margin/padding。
+                groupContainer.style.cssText = 'margin:2px 0 0;padding:0;list-style:none;';
                 var titleRow = document.createElement('div');
                 titleRow.className = 'picdic-dict-group-title';
+                titleRow.style.cssText = 'display:flex;align-items:center;gap:3px;margin:0;padding:2px 4px;min-height:24px;box-sizing:border-box;cursor:pointer;';
+
+                var collapseBtn = document.createElement('button');
+                collapseBtn.className = 'picdic-group-collapse-btn';
+                collapseBtn.type = 'button';
+                collapseBtn.style.cssText = 'border:0;background:transparent;padding:0 2px;margin:0;min-width:18px;height:20px;line-height:18px;font-size:12px;cursor:pointer;';
+                collapseBtn.title = '展开 / 折叠该语言对';
+                titleRow.appendChild(collapseBtn);
+
                 var titleText = document.createElement('span');
                 titleText.textContent = pair;
+                titleText.style.cssText = 'flex:1;min-width:0;';
                 titleRow.appendChild(titleText);
                 var btnGroup = document.createElement('div');
                 btnGroup.className = 'picdic-group-order-btns';
+                btnGroup.style.cssText = 'display:flex;align-items:center;gap:2px;margin:0;padding:0;';
                 if (groupIndex > 0) {
                     var upGroupBtn = document.createElement('button');
                     upGroupBtn.className = 'picdic-group-order-btn';
@@ -429,6 +737,28 @@ function showDictListMenu() {
                 groupContainer.appendChild(titleRow);
                 var subList = document.createElement('ul');
                 subList.className = 'picdic-dict-sublist';
+                subList.style.cssText = 'margin:1px 0 0;padding:0;list-style:none;';
+
+                function applyGroupCollapsedState() {
+                    var isCollapsed = !!collapsedGroups[pair];
+                    subList.style.display = isCollapsed ? 'none' : '';
+                    collapseBtn.textContent = isCollapsed ? '▸' : '▾';
+                    titleRow.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+                }
+                function toggleGroupCollapsed(e) {
+                    if (e) { e.preventDefault(); e.stopPropagation(); }
+                    collapsedGroups[pair] = !collapsedGroups[pair];
+                    state.config.globalConfig.dictGroupCollapsed = collapsedGroups;
+                    state.configManager.notifyChange();
+                    applyGroupCollapsedState();
+                }
+                collapseBtn.addEventListener('click', toggleGroupCollapsed);
+                titleText.addEventListener('click', toggleGroupCollapsed);
+                // 点击标题行空白处也可折叠；排序按钮仍保留独立行为。
+                titleRow.addEventListener('click', function(e) {
+                    if (e.target === titleRow) toggleGroupCollapsed(e);
+                });
+
                 items.forEach(function(item, index) {
                     var dictId = item.id;
                     var dict = item.dict;
@@ -551,6 +881,7 @@ function showDictListMenu() {
                     });
                     subList.appendChild(li);
                 });
+                applyGroupCollapsedState();
                 groupContainer.appendChild(subList);
                 list.appendChild(groupContainer);
             });
@@ -725,6 +1056,10 @@ var GLOBAL_CONFIG_FIELDS = [
     { id:'inpDebounceDelay', key:'inputDebounceDelay', label:'防抖延迟', type:'number', step:'50', min:'100', max:'1000', parse:'int', fallback:300 },
     { id:'chkExpandOnZoom', key:'enableExpandOnZoom', label:'放大时扩展显示高度', type:'checkbox' },
     { id:'chkAutoZoomExternal', key:'autoZoomExternalFullIndex', label:'外部查询放大定位', type:'checkbox', title:'仅对具有词条坐标的全索引词典生效' },
+    { id:'chkAutoZoomInternal', key:'autoZoomInternalSearch', label:'内部查询放大定位', type:'checkbox', title:'从 PicDic 搜索框查询成功后，与外部查询一致：自动放大并定位到命中词条；仅对具有词条坐标的全索引词典生效' },
+    { id:'chkInternalJump', key:'enableInternalJump', label:'内部跳转', type:'checkbox', title:'默认关闭。开启后，点击图片上的词头/高亮条时不跳到宿主 App，而是在当前 PicDic 词典内查询该词头；历史记录中的 📖 仍始终为 App 查询，点击历史记录正文仍为内部查询' },
+    { id:'chkChineseVariantSearch', key:'enableChineseVariantSearch', label:'中文简繁智能检索', type:'checkbox', title:'中文直索引中原词精确结果优先，同时合并对应繁体/异体词条结果（本地运行）；如“发”同时检索“發/髮”' },
+    { id:'chkAutoVariantCandidateQuery', key:'enableAutoVariantCandidateQuery', label:'中文单字包含异体字', type:'checkbox', title:'中文直索引单字查询时，将构形库返回的异体字作为候选，并在 OpenCC 简繁候选之后合并查询结果；部件检索点击候选字同样生效' },
     { id:'chkFollow', key:'darkModeFollowApp', label:'跟随程序暗色', type:'checkbox' },
     { id:'chkDark', key:'darkMode', label:'单独暗色模式', type:'checkbox' },
     { id:'inpDarkFilter', key:'darkModeFilter', label:'暗色滤镜', type:'text', sanitize:true },

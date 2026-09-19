@@ -5,10 +5,11 @@
 /* ==================== 1. 全局重置 & 基础样式 ==================== */
 .PIC_DIC {
     /* 预留全局样式，暂不定义 */
-    font-size: 11px; /* 基础字号，可根据需要调整 */
+    font-size: 12px; /* 基础字号，可根据需要调整 */
 }
 .picdic-external-requests {
-    padding: 2px 2px;
+    position: relative;
+    padding: 2px 26px 2px 2px;
     background: #fff3cd;
     border: 1px solid #ffeeba;
     color: #856404;
@@ -30,6 +31,44 @@
     border-radius: 3px;
     background: #f8f9fa;
     border: 1px solid #ddd;
+}
+
+/* 外部查询请求列表：右侧关闭按钮。
+   仅负责隐藏/清空这一行请求提示，不影响当前 PicDic 页面与历史记录。 */
+.picdic-external-requests-close {
+    position: absolute;
+    top: 50%;
+    right: 4px;
+    transform: translateY(-50%);
+
+    min-width: 0;
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    padding: 0;
+
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    box-shadow: none;
+    outline: none;
+
+    font: inherit;
+    font-size: 1.15em;
+    font-weight: normal;
+    line-height: 18px;
+    text-align: center;
+    cursor: pointer;
+    opacity: .72;
+    z-index: 1;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+}
+
+.picdic-external-requests-close:active {
+    opacity: 1;
 }
 .picdic-popup-panel {
     font-size: 9px; /* 基础字号，可根据需要调整 */
@@ -477,6 +516,87 @@ border-bottom:1px solid rgba(128,128,128,.25);
 
 
 /* ---- 历史面板 ---- */
+/*
+   第一行标题固定为“📜 查询历史”；
+   第二行筛选按钮的布局与视觉全部由外部 CSS 控制。
+   筛选按钮字号与 .picdic-popup-title 保持一致（1.2em）。
+*/
+.picdic-history-filter-bar {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+    margin: 0 0 5px;
+    padding: 0;
+}
+
+.picdic-history-filter-btn {
+    -webkit-appearance: none;
+    appearance: none;
+    min-width: 0;
+    height: 30px;
+    padding: 2px 6px;
+    box-sizing: border-box;
+    border: 1px solid rgba(127,127,127,.34);
+    border-radius: 7px;
+    background: rgba(127,127,127,.07);
+    color: inherit;
+    font-family: inherit;
+    font-size: 1.2em; /* 与“查询历史”标题字号一致 */
+    font-weight: 500;
+    line-height: 1.2;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+.picdic-history-filter-btn.active,
+.picdic-history-filter-btn[aria-pressed="true"] {
+    border-color: currentColor;
+    background: rgba(80,120,200,.18);
+    font-weight: 700;
+}
+
+.picdic-history-language-row {
+    display: none;
+    align-items: center;
+    gap: 5px;
+    margin: 0 0 5px;
+    padding: 0;
+}
+
+.picdic-history-language-label {
+    font-size: 1em;
+    opacity: .7;
+    white-space: nowrap;
+}
+
+.picdic-history-language-select {
+    flex: 1;
+    min-width: 0;
+    height: 29px;
+    padding: 1px 5px;
+    box-sizing: border-box;
+    border: 1px solid rgba(127,127,127,.32);
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font-family: inherit;
+    font-size: 1em;
+}
+
+.picdic-history-filter-summary {
+    margin: 0 1px 4px;
+    padding: 0;
+    font-size: 1em;
+    line-height: 1.3;
+    opacity: .62;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 .picdic-history-item {
     display: flex;
     justify-content: space-between;
@@ -511,6 +631,24 @@ border-bottom:1px solid rgba(128,128,128,.25);
     font-weight: bold;
     margin-right: 12px;
     word-break: break-word;
+}
+
+/* 历史面板中的中文词头：使用 PicDic 已注册的全宋体 fallback。
+   普通中文优先 FSung-p；补充平面/特殊 Unicode 优先 FSung-X，避免宿主系统字体缺字而显示空白。 */
+.picdic-history-word.picdic-history-fsung {
+    font-family:
+        "PicDic-FSung-p", "PicDic-FSung-X", "PicDic-FSung-1",
+        "PicDic-FSung-2", "PicDic-FSung-3", "PicDic-FSung-F",
+        "FSung-p", "FSung-X", "FSung-1", "FSung-2", "FSung-3", "FSung-F",
+        serif !important;
+}
+
+.picdic-history-word.picdic-history-fsung.picdic-history-fsung-ext {
+    font-family:
+        "PicDic-FSung-X", "PicDic-FSung-F", "PicDic-FSung-1",
+        "PicDic-FSung-2", "PicDic-FSung-3", "PicDic-FSung-p",
+        "FSung-X", "FSung-F", "FSung-1", "FSung-2", "FSung-3", "FSung-p",
+        serif !important;
 }
 
 .picdic-history-right {
@@ -891,6 +1029,67 @@ max-height: 100px;
     padding: 0 4px;
 }
 
+
+
+/* ==================== 11. GoldenDict 词典标题 PicDic Controller 图标 ==================== */
+/*
+   Controller 只负责把图标插到 .gddictname 的最左侧；
+   图标外观统一在这里设置，不在 Controller JS 内嵌 CSS。
+*/
+.gddictname .picdic-controller-buttons {
+    display: inline-flex !important;
+    align-items: center !important;
+    vertical-align: middle !important;
+
+    /* 只保留图标组与右侧词典名称之间的距离 */
+    margin: 0 0.45em 0 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    line-height: 1 !important;
+}
+
+.gddictname .picdic-controller-buttons .picdic-controller-icon {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    display: inline-block !important;
+    box-sizing: content-box !important;
+
+    min-width: 0 !important;
+    min-height: 0 !important;
+    width: auto !important;
+    height: auto !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    background-image: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+
+    color: inherit !important;
+    font: inherit !important;
+    font-weight: normal !important;
+    line-height: 1 !important;
+    vertical-align: middle !important;
+    cursor: pointer !important;
+}
+
+/* 激活 / 按下 / 聚焦时也不出现底色、边框或阴影 */
+.gddictname .picdic-controller-buttons .picdic-controller-icon:active,
+.gddictname .picdic-controller-buttons .picdic-controller-icon:focus,
+.gddictname .picdic-controller-buttons .picdic-controller-icon[data-picdic-active="1"] {
+    background: transparent !important;
+    background-image: none !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+
 /* ================================================================
    暗色模式 —— 同时作用于 .PIC_DIC.dark-mode 和 body.dark-mode
    ================================================================ */
@@ -990,6 +1189,22 @@ body.dark-mode .picdic-title-action-btn.to_Default {
 }
 
 /* 历史面板暗色 */
+body.dark-mode .picdic-history-filter-btn {
+    border-color: rgba(190,190,190,.38);
+    background: rgba(255,255,255,.05);
+    color: #ddd;
+}
+body.dark-mode .picdic-history-filter-btn.active,
+body.dark-mode .picdic-history-filter-btn[aria-pressed="true"] {
+    border-color: #9bbcf0;
+    background: rgba(80,120,200,.28);
+    color: #fff;
+}
+body.dark-mode .picdic-history-language-select {
+    border-color: #666;
+    background: #333;
+    color: #ddd;
+}
 body.dark-mode .picdic-history-item {
     border-bottom-color: #444;
 }

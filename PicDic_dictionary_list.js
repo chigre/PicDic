@@ -55,7 +55,15 @@ var picdic_dictList = {
         indexPath: 'PicDic_PT-ZH_DPC/PicDic_PT-ZH_DPC_index.js',
         version: '1',
         resourceId: '22ac9d26f3de9d5a071b0df02b19c655'
-    }
+    },
+    'PicDic_ZH-ZH_SanMinDCD': {
+            name: '三民書局大辭典增訂版',
+            index_language: 'zho',
+            contents_language: 'zho',
+            indexPath: 'PicDic_ZH-ZH_SanMinDCD/PicDic_ZH-ZH_SanMinDCD_index.js',
+            version: '1',
+            resourceId: 'dc01a9d64a8c6012c8a1f60677e13429'
+        }
     };
 window.picdic_dictList = picdic_dictList;
 console.log('[PicDic] 词典列表已注册，共 ' + Object.keys(picdic_dictList).length + ' 个词典。');
