@@ -1,49 +1,114 @@
-# PicDic扫描版图片词典转换
-# 需提供以下原始文件：
-# （1）词典名_index.txt【原始索引文件：PYTHON转换需要】
-# （2）词典名_config.txt【本文件：PYTHON转换需要】
-# Python代码会生成以下文件：
-# （1）词典名.dsl【最终复制到文件夹：/PicDic/词典名/ 】
-# （2）词典名_index.js【最终复制到文件夹：/PicDic/词典名/ 】
-# （3）自动更新词典列表信息文件：PicDic_dictionary_list.js 【若同路径无该文件，则复制cmd命令行内相应结果去手动更新】
-# （4）词典名_for_Mdict.txt 以及 词典名_for_Stardict.txt【若为全索引文件，WITH_COORDINATES 和 GENERATE_MDX 均设置为1，之后请使用mdxbuilder或pyglossary转为所需的主词典文件，放在/PicDic/】
-# （3）词典名.bmp 或者 词典名.png【最终复制到文件夹：/PicDic/词典名/】
-# （4）词典名.dsl.files.zip【最终复制到文件夹：/PicDic/词典名/ 】
+# PicDic 扫描版图片词典转换（PicOnly 整页版）
+#
+# 需提供：
+# （1）词典名_index.txt
+# （2）本配置文件
+#
+# Python 会生成：
+# （1）词典名.dsl
+# （2）词典名_index.js
+# （3）更新 PicDic_dictionary_list.js 所需的词典信息（若同目录有该文件会自动更新）
+# （4）词典名_for_Mdict.txt
+# （5）词典名_for_Stardict.txt  ← GoldenDict 转换前文本
+#
+# 新版默认 ENTRY_MODE = picOnly：
+# 每个词条只生成 <PicDic_SearchWord> + 外部词典配置JS + PicDic_DictionaryController.js。
+# 页面内多个 PicOnly 图片词典共用唯一 PicDic UI；最靠前的词典自动显示，
+# 其余词典点击词典标题旁的 📖 后，将同一个 PicDic host 移入该词典并切换其索引。
 #########################################################################
-看示例词典的文件夹结构就清楚了
-#########################################################################
-# 构建配置文件
-# 请根据实际情况填写，等号两边可以有空格
 
-# 【词典文件名】文件名.dsl | 文件名.dsl.files.zip | 文件名_index.js
-DICT_FILE_NAME = PicDic_ES-ZH_NEraGDEC
+# 【PicDic 内部词典 ID】
+# 建议与 DICT_FILE_NAME 相同；必须与 PicDic_dictionary_list.js 中的键一致。
+DICT_ID = PicDic_ZH-ZH_SanMinDCD
+
+# 【词典文件名】
+# 对应：文件名.dsl | 文件名.dsl.files.zip | 文件名_index.js | 输出文件夹
+DICT_FILE_NAME = PicDic_ZH-ZH_SanMinDCD
 
 # 【词典显示名称】
-DICT_NAME = 新时代西汉大词典 Nueva Era Gran Diccionario Español-Chino
+DICT_NAME = 三民書局大辭典增訂版
 
-# 【索引语言】english / chinese / pinyin
-INDEX_LANGUAGE = spa
+# 【索引语言】如 zho / eng / spa 等
+INDEX_LANGUAGE = zho
 
 # 【内容语言】
 CONTENTS_LANGUAGE = zho
 
 # 【词典栏数】
-COLUMN_NUM = 2
+COLUMN_NUM = 3
 
 # 【原始索引文件】
-INDEX_FILE = PicDic_ES-ZH_NEraGDEC_index.txt
+INDEX_FILE = PicDic_ZH-ZH_SanMinDCD_index.txt
 
 # 【原始索引是否包含详细索引坐标（0=NO，1=YES）】
+# 1：可用于词条自动定位/高亮；0：仍可生成整页 PicDic 词典，只是不具备坐标定位。
 WITH_COORDINATES = 1
 
-# 【原始索引包含详细索引坐标的，设置true/1/yes，以生成可用于APP查询的主词典】
+# 【是否生成 MDict / StarDict 转换前主词典文本】
 GENERATE_MDX = 1
 
-# 【正文页面开始的标记】
-BODY_START_MARKER = 正文开始
+# 【GoldenDict/MDict 外部简体查询入口】
+# 解决：APP 搜索框输入简体，但本词典 StarDict/MDict 主索引只有繁体，导致词典根本不会被调用。
+# auto = 中文索引自动生成；1 = 强制生成；0 = 关闭。
+# 注意：这只给“宿主主词典”增加简体入口，不会改 PicDic_ZH..._index.js 的真实繁体索引。
+GENERATE_SIMPLIFIED_ALIASES = auto
 
-# 【正文页面结束的标记】
+# 【每个繁体词头最多生成的简体入口数】
+# 少数繁体字可能对应多个简体反向候选；通常保持 16 即可。
+SIMPLIFIED_ALIAS_MAX_PER_WORD = 16
+
+# 【OpenCC 短语优先】
+# 1 = 先按 OpenCC TSPhrases 做最长短语匹配，再对未命中片段做字级反向别名（推荐）
+# 0 = 退回 V9.6 的纯字级反向别名
+OPENCC_PHRASE_FIRST_ALIASES = 1
+
+# 【OpenCC TSPhrases 本地缓存位置】
+# 相对路径以 __build_picdic.py 所在目录为基准。
+OPENCC_TSPHRASES_FILE = opencc_data/TSPhrases.txt
+
+# 【本地缺少 TSPhrases 时是否自动下载并缓存】
+# 1 = 首次构建自动从 opencc-data 官方 GitHub 镜像下载；以后直接用本地缓存。
+# 0 = 不联网；若本地也没有 TSPhrases，则自动退回字级模式。
+OPENCC_AUTO_DOWNLOAD_DATA = 1
+
+# 【词条壳模式】
+# picOnly    = 新版纯整页 PicDic（推荐）
+# standalone = 旧版每个词条直接内嵌完整 PicDic UI（仅兼容用）
+ENTRY_MODE = picOnly
+
+# 【PicOnly 是否自动激活页面中最靠前的图片词典】
+# 1=是；0=所有词典都必须点击 📖 后才显示
+AUTO_ACTIVATE_PICONLY = 1
+
+# 【PicDic 容器 ID】
+# 可继续沿用旧版“文本+切图+整页 PicDic”的 ISBN_xxxx 写法，例如：
+# CONTAINER_ID = ISBN_9787100028851
+# 设置后，生成的词条会写成：<div id="ISBN_9787100028851" ...>，
+# 外部 <DICT_FILE_NAME>_config.js 也会使用 containerId。
+# 留空则使用新版 data-picdic-container 选择器，不写固定 id。
+CONTAINER_ID = ISBN_9789571462653
+
+# 【GoldenDict Android 的 PicDic 公共目录】
+PICDIC_BASE_GOLDENDICT = file:///sdcard/GoldenDict/PicDic/
+
+# 【共享控制器文件名】
+CONTROLLER_FILE = PicDic_DictionaryController.js
+
+# 【PicOnly 外部配置 JS】
+# 只生成一份：<DICT_FILE_NAME>_config.js，GoldenDict / MDict 共用。
+# GoldenDict 词条中使用：
+# file:///sdcard/GoldenDict/PicDic/<DICT_FILE_NAME>/<DICT_FILE_NAME>_config.js
+# MDict 词条中只使用 MDD 内相对资源名：
+# <DICT_FILE_NAME>_config.js
+# PicDic_DictionaryController.js 也同样直接从 MDD 内读取，不写手机文件系统绝对路径。
+
+# 【正文页面开始/结束标记】
+BODY_START_MARKER = 正文开始
 BODY_END_MARKER = 正文结束
 
-# 【索引文件所在路径】如果不指定或留空，则默认使用python代码所在目录
-INDEX_DIR = 
+# 【自定义分隔符】默认 tab；一般无需修改
+SEPARATOR = \t
+
+# 【索引文件所在路径】
+# 留空 = Python 脚本所在目录；也可填写绝对路径或相对于脚本目录的路径。
+INDEX_DIR =
