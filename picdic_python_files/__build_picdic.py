@@ -5,17 +5,19 @@
 # -*- coding: utf-8 -*-
 
 """
-PicDic 索引构建工具（PicOnly 整页版，V9.8 OpenCC 短语优先简体入口）
+PicDic 索引构建工具（PicOnly 整页版，V10.0 直接生成 StarDict）
 - 支持位置信息索引（word\tX%\tY%\tpage）
 - 支持自定义分隔符、@ 拆分词条、自动计算列号
 - wordToPages 可保存页码或详细坐标
-- 生成 MDict / StarDict 转换前文本
+- 生成 MDict / StarDict 转换前文本，并可直接生成 StarDict .ifo/.idx/.dict(.dz)
 - 默认生成新版 mode:"picOnly" 词条：词条本身不再内嵌第二套 PicDic UI，
   只提供 <PicDic_SearchWord> + 外部词典配置 JS + PicDic_DictionaryController.js
 - 多个 PicOnly 图片词典同时命中时，由 Controller 共用唯一 PicDic host；
   DOM 中排在最前的词典自动显示，其他词典点击 📖 后切换到其框架内
 - 中文繁体索引可自动生成简体查询别名，让 GoldenDict/MDict 在进入 PicDic 前就能命中词典
 - 外部简体别名采用 OpenCC TSPhrases 短语优先 + 字级反向映射补充，避免“乾隆→干隆”一类错误入口
+- StarDict 文件名可按 INDEX_LANGUAGE / CONTENTS_LANGUAGE 自动追加 ISO 639-1 语言对（如 .es-zh）
+- 可选使用 dictzip 生成 .dict.dz；转换逻辑沿用 mdxtogd 的 PyGlossary StarDict writer
 - 自动生成 .dsl 和更新 PicDic_dictionary_list.js
 """
 
@@ -26,6 +28,8 @@ import json
 import re
 import html as html_lib
 import urllib.request
+import shutil
+from pathlib import Path
 from datetime import datetime
 
 DEFAULT_CONFIG = {
@@ -41,6 +45,12 @@ DEFAULT_CONFIG = {
     'GENERATE_MDX': 'false',
     'SEPARATOR': '\t',
     'WITH_COORDINATES': '0',
+
+    # 是否在生成 *_for_Stardict.txt 后直接生成 StarDict 二进制词典。
+    # 为兼容旧配置，程序默认关闭；新版示例配置默认开启。
+    'GENERATE_STARDICT': '0',
+    # 1 = 最终使用 .dict.dz；0 = 保留未压缩 .dict。
+    'STARDICT_COMPRESS_DICT': '1',
 
     # 词条壳模式：picOnly（推荐，新版纯整页 PicDic）/ standalone（旧版直接内嵌完整 UI）
     'ENTRY_MODE': 'picOnly',
@@ -95,6 +105,8 @@ def parse_config_file(filepath):
     except ValueError:
         config['WITH_COORDINATES'] = 0
     config['GENERATE_MDX'] = config.get('GENERATE_MDX', 'true').lower() in ('true', '1', 'yes')
+    config['GENERATE_STARDICT'] = str(config.get('GENERATE_STARDICT', '0')).lower() in ('true', '1', 'yes', 'on')
+    config['STARDICT_COMPRESS_DICT'] = str(config.get('STARDICT_COMPRESS_DICT', '1')).lower() in ('true', '1', 'yes', 'on')
     config['AUTO_ACTIVATE_PICONLY'] = str(config.get('AUTO_ACTIVATE_PICONLY', '1')).lower() in ('true', '1', 'yes')
     config['ENTRY_MODE'] = str(config.get('ENTRY_MODE', 'picOnly')).strip() or 'picOnly'
     config['CONTAINER_ID'] = str(config.get('CONTAINER_ID', '')).strip()
@@ -610,6 +622,229 @@ def build_external_lookup_entries(word_list, config):
 
     return entries, len(alias_headwords)
 
+# ================== StarDict 语言对与直接转换 ==================
+# 与 mdxtogd v2.11 保持同一命名策略：配置内部通常使用 ISO 639-3/术语码，
+# StarDict 文件名使用 GoldenDict 容易识别的 ISO 639-1 两字母语言对。
+_LANGUAGE_TABLE = {
+    'eng': ('en', 'eng'),
+    'zho': ('zh', 'zho', 'chi', 'cn'),
+    'fra': ('fr', 'fra', 'fre'),
+    'deu': ('de', 'deu', 'ger'),
+    'spa': ('es', 'spa'),
+    'ita': ('it', 'ita'),
+    'por': ('pt', 'por'),
+    'jpn': ('ja', 'jpn'),
+    'kor': ('ko', 'kor'),
+    'rus': ('ru', 'rus'),
+    'nld': ('nl', 'nld', 'dut'),
+    'lat': ('la', 'lat'),
+    'ara': ('ar', 'ara'),
+    'ell': ('el', 'ell', 'gre'),
+    'ces': ('cs', 'ces', 'cze'),
+    'slk': ('sk', 'slk', 'slo'),
+    'ron': ('ro', 'ron', 'rum'),
+    'hun': ('hu', 'hun'),
+    'pol': ('pl', 'pol'),
+    'tur': ('tr', 'tur'),
+    'vie': ('vi', 'vie'),
+    'tha': ('th', 'tha'),
+    'ind': ('id', 'ind'),
+    'msa': ('ms', 'msa', 'may'),
+    'hin': ('hi', 'hin'),
+    'ben': ('bn', 'ben'),
+    'urd': ('ur', 'urd'),
+    'fas': ('fa', 'fas', 'per'),
+    'heb': ('he', 'heb'),
+    'swe': ('sv', 'swe'),
+    'dan': ('da', 'dan'),
+    'nor': ('no', 'nor'),
+    'fin': ('fi', 'fin'),
+    'ukr': ('uk', 'ukr'),
+    'cat': ('ca', 'cat'),
+    'eus': ('eu', 'eus', 'baq'),
+    'cym': ('cy', 'cym', 'wel'),
+    'sqi': ('sq', 'sqi', 'alb'),
+    'hye': ('hy', 'hye', 'arm'),
+    'kat': ('ka', 'kat', 'geo'),
+    'isl': ('is', 'isl', 'ice'),
+    'mkd': ('mk', 'mkd', 'mac'),
+    'mri': ('mi', 'mri', 'mao'),
+    'mya': ('my', 'mya', 'bur'),
+    'bod': ('bo', 'bod', 'tib'),
+    'srp': ('sr', 'srp'),
+    'hrv': ('hr', 'hrv'),
+    'slv': ('sl', 'slv'),
+    'bul': ('bg', 'bul'),
+}
+
+_LANGUAGE_ALIAS_TO_CANONICAL = {}
+for _canonical, _aliases in _LANGUAGE_TABLE.items():
+    _LANGUAGE_ALIAS_TO_CANONICAL[_canonical] = _canonical
+    for _alias in _aliases:
+        _LANGUAGE_ALIAS_TO_CANONICAL[str(_alias).lower()] = _canonical
+
+# Builder 的既有配置主要使用代码；这里额外接受最常用的中文/英文写法，
+# 方便不同配置文件之间复用。
+_LANGUAGE_ALIAS_TO_CANONICAL.update({
+    'english':'eng','英语':'eng','英文':'eng','英':'eng',
+    'chinese':'zho','中文':'zho','汉语':'zho','漢語':'zho','汉':'zho','漢':'zho','中':'zho',
+    'spanish':'spa','西班牙语':'spa','西语':'spa','西':'spa',
+    'portuguese':'por','葡萄牙语':'por','葡语':'por','葡':'por',
+    'french':'fra','法语':'fra','法':'fra',
+    'german':'deu','德语':'deu','德':'deu',
+    'italian':'ita','意大利语':'ita','意语':'ita','意':'ita',
+    'japanese':'jpn','日语':'jpn','日':'jpn',
+    'korean':'kor','韩语':'kor','韓語':'kor','韩':'kor','韓':'kor',
+    'russian':'rus','俄语':'rus','俄':'rus',
+})
+
+
+def _canonical_language_code(value):
+    raw = str(value or '').strip()
+    if not raw:
+        return ''
+    low = raw.lower()
+    if low in ('unk', 'unknown', 'any'):
+        return ''
+    if low in _LANGUAGE_ALIAS_TO_CANONICAL:
+        return _LANGUAGE_ALIAS_TO_CANONICAL[low]
+    # 未知两字母代码直接保留，可用于文件名；未知三字码不猜测其 ISO 639-1。
+    if re.fullmatch(r'[a-z]{2}', low):
+        return low
+    return low
+
+
+def iso6391_for_language(value):
+    code = _canonical_language_code(value)
+    if not code:
+        return None
+    if re.fullmatch(r'[a-z]{2}', code):
+        return code
+    info = _LANGUAGE_TABLE.get(code)
+    return info[0] if info else None
+
+
+def stardict_language_tag(index_language, contents_language):
+    src = iso6391_for_language(index_language)
+    dst = iso6391_for_language(contents_language)
+    if not src or not dst:
+        return None
+    return src + '-' + dst
+
+
+def stardict_basename(dict_file_name, index_language, contents_language):
+    tag = stardict_language_tag(index_language, contents_language)
+    if tag:
+        return str(dict_file_name) + '.' + tag, tag
+    return str(dict_file_name), None
+
+
+_GLOSSARY_INITIALIZED = False
+
+
+def get_glossary_class():
+    """与 mdxtogd v2.11 相同：通过 PyGlossary 写 StarDict。"""
+    global _GLOSSARY_INITIALIZED
+    try:
+        from pyglossary import Glossary
+    except ImportError as e:
+        raise RuntimeError(
+            '已开启 GENERATE_STARDICT，但未安装 PyGlossary。\n'
+            '请先执行：pip install -U pyglossary xxhash\n'
+            '转换前 *_for_Stardict.txt 已保留，可安装后重新运行。'
+        ) from e
+    if not _GLOSSARY_INITIALIZED:
+        Glossary.init()
+        _GLOSSARY_INITIALIZED = True
+    return Glossary
+
+
+def enforce_stardict_bookname(ifo_path, bookname):
+    """语言对写在文件名中；.ifo 内 bookname 保持用户看到的词典显示名。"""
+    p = Path(ifo_path)
+    if not p.is_file():
+        raise FileNotFoundError('StarDict IFO 不存在：' + str(p))
+    text = p.read_text(encoding='utf-8-sig')
+    lines = text.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+    replaced = False
+    for i, line in enumerate(lines):
+        if line.startswith('bookname='):
+            lines[i] = 'bookname=' + str(bookname)
+            replaced = True
+            break
+    if not replaced:
+        lines.insert(2 if len(lines) >= 2 else len(lines), 'bookname=' + str(bookname))
+    while lines and lines[-1] == '':
+        lines.pop()
+    p.write_text('\n'.join(lines) + '\n', encoding='utf-8', newline='\n')
+
+
+def _cleanup_stardict_outputs(output_dir, base):
+    for suffix in ('.ifo','.idx','.idx.gz','.dict','.dict.dz','.syn','.syn.dz','.res.zip'):
+        p = Path(output_dir) / (base + suffix)
+        if p.exists() and p.is_file():
+            p.unlink()
+
+
+def list_stardict_files(output_dir, base):
+    out = []
+    for suffix in ('.ifo','.idx','.idx.gz','.dict','.dict.dz','.syn','.syn.dz','.res.zip'):
+        p = Path(output_dir) / (base + suffix)
+        if p.exists():
+            out.append(p)
+    return out
+
+
+def build_stardict(tabfile, output_dir, stardict_base, bookname, compress_dict=True):
+    """
+    直接把 Builder 生成的 Tabfile 转成 StarDict。
+
+    STARDICT_COMPRESS_DICT=1 -> 生成 .dict.dz（dictzip）
+    STARDICT_COMPRESS_DICT=0 -> 生成 .dict
+
+    HTML 词条使用 sametypesequence=h；适合 GoldenDict WebView 直接渲染 PicDic 入口 HTML。
+    """
+    Glossary = get_glossary_class()
+    tabfile = Path(tabfile)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    final_ifo = output_dir / (stardict_base + '.ifo')
+
+    _cleanup_stardict_outputs(output_dir, stardict_base)
+
+    opts = {
+        'dictzip': bool(compress_dict),
+        'sametypesequence': 'h',
+    }
+    glos = Glossary()
+    result = glos.convert(
+        inputFilename=str(tabfile),
+        outputFilename=str(final_ifo),
+        inputFormat='Tabfile',
+        outputFormat='Stardict',
+        writeOptions=opts,
+    )
+    if result is False or not final_ifo.exists():
+        raise RuntimeError('PyGlossary Tabfile -> StarDict 转换失败。')
+
+    enforce_stardict_bookname(final_ifo, bookname)
+
+    expected_dict = output_dir / (stardict_base + ('.dict.dz' if compress_dict else '.dict'))
+    if not expected_dict.exists():
+        raise RuntimeError(
+            'StarDict 转换完成但缺少预期文件：' + expected_dict.name +
+            '。请检查 PyGlossary 版本及 dictzip 写入支持。'
+        )
+
+    # 明确二选一，避免上次构建残留另一种格式。
+    stale = output_dir / (stardict_base + ('.dict' if compress_dict else '.dict.dz'))
+    if stale.exists():
+        stale.unlink()
+
+    files = list_stardict_files(output_dir, stardict_base)
+    return files
+
+
 # ================== 生成词条文件（MDict + StarDict） ==================
 def normalize_base(base):
     base = '' if base is None else str(base).strip()
@@ -661,7 +896,7 @@ def generate_pic_only_config_js(dict_id, dict_file_name, auto_activate=True, con
         cfg['containerSelector'] = make_picdic_container_selector(dict_file_name)
     return (
         '// PicDic PicOnly dictionary config\n'
-        '// Auto-generated by __build_picdic.py V9.8\n'
+        '// Auto-generated by __build_picdic.py V10.0\n'
         '// One unified config is shared by GoldenDict and MDict.\n'
         '// Resource base is selected automatically by PicDic_DictionaryController.js.\n'
         'window.PICDIC_CONFIG = ' + js_json(cfg) + ';\n'
@@ -784,8 +1019,12 @@ def generate_wordlist_files(word_list, output_dir, dict_file_name, dict_id, conf
         f"（原词头 {original_count} + 简体入口 {alias_count}；{entry_mode}，MDD 相对资源）。"
     )
 
-    # GoldenDict / StarDict 转换前文本
-    stardict_path = os.path.join(output_dir, f'{dict_file_name}_for_Stardict.txt')
+    # GoldenDict / StarDict 转换前文本。
+    # 与最终 StarDict 共用 basename，并根据配置语言对追加 .en-zh / .es-zh / .zh-zh 等。
+    stardict_base, language_tag = stardict_basename(
+        dict_file_name, config.get('INDEX_LANGUAGE'), config.get('CONTENTS_LANGUAGE')
+    )
+    stardict_path = os.path.join(output_dir, f'{stardict_base}_for_Stardict.txt')
     with open(stardict_path, 'w', encoding='utf-8') as f:
         for headword in sorted(lookup_entries):
             query_words = lookup_entries[headword]
@@ -796,8 +1035,22 @@ def generate_wordlist_files(word_list, output_dir, dict_file_name, dict_id, conf
         f"（原词头 {original_count} + 简体入口 {alias_count}；{entry_mode}）。"
     )
 
+    if language_tag:
+        print(f'   ↳ StarDict 语言对：{language_tag}；最终文件 basename：{stardict_base}')
+    else:
+        print('   ↳ StarDict 语言对无法可靠映射到 ISO 639-1，文件名不追加语言标签。')
     if alias_count:
         print('   ↳ 简体入口采用 OpenCC 短语优先 + 字级补充；PicDic_SearchWord 保留转换前真实词头，宿主查询可直接 exact hot-lite。')
+
+    return {
+        'mdict_text': mdx_path,
+        'stardict_text': stardict_path,
+        'stardict_base': stardict_base,
+        'language_tag': language_tag,
+        'host_headword_count': len(lookup_entries),
+        'original_count': original_count,
+        'alias_count': alias_count,
+    }
 
 # ================== 生成 DSL ==================
 def generate_dsl(dict_file_name, dict_name, index_language='eng', contents_language='eng'):
@@ -967,6 +1220,8 @@ def main():
     BODY_END_MARKER = config['BODY_END_MARKER']
     COLUMN_NUM = config['COLUMN_NUM']
     GENERATE_MDX = config['GENERATE_MDX']
+    GENERATE_STARDICT = config['GENERATE_STARDICT']
+    STARDICT_COMPRESS_DICT = config['STARDICT_COMPRESS_DICT']
     SEPARATOR = config['SEPARATOR']
     WITH_COORDINATES = config['WITH_COORDINATES']
 
@@ -1056,14 +1311,36 @@ def main():
     if str(config.get('ENTRY_MODE', 'picOnly')).lower() in ('piconly', 'pic-only', 'pic_only'):
         generate_pic_only_config_file(output_dir, DICT_FILE_NAME, DICT_ID, config)
 
-    # 生成两种词条文件。PicOnly 整页词典即使没有坐标也可生成；
-    # 有坐标时 PicDic 还能进一步完成词条定位/高亮。
-    if GENERATE_MDX:
+    # 生成宿主词条文本，并可直接生成 StarDict。
+    # PicOnly 整页词典即使没有坐标也可生成；有坐标时还能定位/高亮。
+    host_outputs = None
+    if GENERATE_MDX or GENERATE_STARDICT:
         word_list = list(word_to_pages.keys())
         if word_list:
-            generate_wordlist_files(word_list, output_dir, DICT_FILE_NAME, DICT_ID, config)
+            host_outputs = generate_wordlist_files(
+                word_list, output_dir, DICT_FILE_NAME, DICT_ID, config
+            )
         else:
-            print("警告：word_to_pages 为空，无法生成词条文件。")
+            print("警告：word_to_pages 为空，无法生成宿主词条文件 / StarDict。")
+
+    if GENERATE_STARDICT and host_outputs:
+        print('\n正在直接生成 StarDict ...')
+        try:
+            stardict_files = build_stardict(
+                host_outputs['stardict_text'],
+                output_dir,
+                host_outputs['stardict_base'],
+                DICT_NAME,
+                compress_dict=STARDICT_COMPRESS_DICT,
+            )
+        except Exception as e:
+            print('❌ StarDict 生成失败：')
+            print(str(e))
+            print('   转换前文本仍保留：' + os.path.basename(host_outputs['stardict_text']))
+            sys.exit(2)
+        print('✅ StarDict 已生成：')
+        for _p in stardict_files:
+            print('   - ' + _p.name)
 
     print("\n" + "=" * 60)
     print(f"最终词典键（picdic_dictList 中的键）：{final_key}")
@@ -1083,13 +1360,17 @@ def main():
     print(f"  - {DICT_FILE_NAME}.bmp（手动准备）")
     if COLUMN_NUM > 1:
         print(f"  列数配置: {COLUMN_NUM}（已在 _index.js 中记录，并已计算列号）")
-    if GENERATE_MDX:
-        print(f"\n✅ 词条文件已生成：")
-        print(f"   - {DICT_FILE_NAME}_for_Mdict.txt")
-        print(f"   - {DICT_FILE_NAME}_for_Stardict.txt")
-        print(f"   (已包含所有词条；ENTRY_MODE={config.get('ENTRY_MODE', 'picOnly')})")
+    if host_outputs:
+        print(f"\n✅ 宿主词条文本已生成：")
+        print('   - ' + os.path.basename(host_outputs['mdict_text']))
+        print('   - ' + os.path.basename(host_outputs['stardict_text']))
+        print(f"   (已包含所有宿主词头；ENTRY_MODE={config.get('ENTRY_MODE', 'picOnly')})")
         if str(config.get('ENTRY_MODE', 'picOnly')).lower() in ('piconly','pic-only','pic_only'):
             print("   纯整页版入口壳只加载外部词典配置 JS + PicDic_DictionaryController.js；实际 PicDic UI 由 Controller 共享创建。")
+    if GENERATE_STARDICT and host_outputs:
+        _ext = '.dict.dz' if STARDICT_COMPRESS_DICT else '.dict'
+        print(f"\n✅ StarDict 直接生成：{host_outputs['stardict_base']}.ifo / .idx / {_ext}")
+        print('   bookname=' + str(DICT_NAME))
 
 if __name__ == "__main__":
     main()

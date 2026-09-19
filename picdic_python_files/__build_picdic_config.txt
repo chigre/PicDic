@@ -9,7 +9,13 @@
 # （2）词典名_index.js
 # （3）更新 PicDic_dictionary_list.js 所需的词典信息（若同目录有该文件会自动更新）
 # （4）词典名_for_Mdict.txt
-# （5）词典名_for_Stardict.txt  ← GoldenDict 转换前文本
+# （5）词典名.<语言对>_for_Stardict.txt  ← GoldenDict/StarDict 转换前文本
+# （6）可选直接生成 StarDict：词典名.<语言对>.ifo / .idx / .dict 或 .dict.dz
+#
+# 语言对来自 INDEX_LANGUAGE / CONTENTS_LANGUAGE，例如：
+#   spa + zho -> .es-zh
+#   eng + zho -> .en-zh
+#   zho + zho -> .zh-zh
 #
 # 新版默认 ENTRY_MODE = picOnly：
 # 每个词条只生成 <PicDic_SearchWord> + 外部词典配置JS + PicDic_DictionaryController.js。
@@ -34,6 +40,13 @@ INDEX_LANGUAGE = zho
 # 【内容语言】
 CONTENTS_LANGUAGE = zho
 
+# StarDict 文件名会根据以上两项自动增加 ISO 639-1 语言对。
+# 例如本例 zho -> zho：
+#   PicDic_ZH-ZH_SanMinDCD.zh-zh.ifo
+#   PicDic_ZH-ZH_SanMinDCD.zh-zh.idx
+#   PicDic_ZH-ZH_SanMinDCD.zh-zh.dict.dz
+# .ifo 内 bookname 仍使用 DICT_NAME，不会把 .zh-zh 显示到词典名称中。
+
 # 【词典栏数】
 COLUMN_NUM = 3
 
@@ -45,7 +58,22 @@ INDEX_FILE = PicDic_ZH-ZH_SanMinDCD_index.txt
 WITH_COORDINATES = 1
 
 # 【是否生成 MDict / StarDict 转换前主词典文本】
+# 1 = 保留 *_for_Mdict.txt 与 *.<语言对>_for_Stardict.txt（推荐，方便人工检查/二次转换）
+# 0 = 旧流程可关闭；若下面 GENERATE_STARDICT=1，程序仍会生成 StarDict 所需的转换前文本。
 GENERATE_MDX = 1
+
+# 【是否直接生成 StarDict 格式词典】
+# 1 = 在生成 *.<语言对>_for_Stardict.txt 后，直接生成 .ifo/.idx/.dict(.dz)
+# 0 = 只保留转换前文本，不直接转换
+#
+# 直接转换沿用 mdxtogd v2.11 的 PyGlossary 写入方式。首次使用请安装：
+#   pip install -U pyglossary xxhash
+GENERATE_STARDICT = 1
+
+# 【StarDict 的 .dict 是否使用 dictzip 压缩】
+# 1 = 最终生成 .dict.dz（推荐，GoldenDict 常用）
+# 0 = 最终保留未压缩 .dict
+STARDICT_COMPRESS_DICT = 1
 
 # 【GoldenDict/MDict 外部简体查询入口】
 # 解决：APP 搜索框输入简体，但本词典 StarDict/MDict 主索引只有繁体，导致词典根本不会被调用。
